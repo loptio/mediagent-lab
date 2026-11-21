@@ -11,13 +11,15 @@ Adapter 不向外拋出例外：平台的錯誤一律轉成 Failed（含失敗�
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
+from urllib.parse import urlencode
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from . import clock
 from .enums import AuthStatus, FailureReason, Platform
 from .models import PlatformAccount
 
@@ -103,6 +105,29 @@ class PlatformAdapter(Protocol):
     async def finalize(self, credential: Credential, request_ref: str) -> Published | Failed: ...
 
 
+# ---------- 平台授權（OAuth）：Threads、Instagram 連結帳號時使用 ----------
+
+
+@dataclass(frozen=True)
+class OAuthAccount:
+    """授權完成後由平台取得的帳號資料。credential 會加密保存，內容由 Adapter 定義。"""
+
+    platform_user_id: str
+    account_name: str
+    credential: Credential
+    expires_at: datetime | None
+
+
+class OAuthFailed(Exception):
+    """平台授權失敗：使用者拒絕、授權碼無效、state 無效，或平台 App 尚未設定。訊息不得含憑證。"""
+
+
+class OAuthProvider(Protocol):
+    def authorization_url(self, state: str, redirect_uri: str) -> str: ...
+
+    async def exchange_code(self, code: str, redirect_uri: str) -> OAuthAccount: ...
+
+
 class WebhookInvalid(Exception):
     """Webhook 網址格式不對，或平台明確回應這個 Webhook 不存在、不可用。"""
 
@@ -186,6 +211,9 @@ class MockAdapter:
         self._pending: dict[str, tuple[str, PostContent]] = {}
         self._counter = 0
         self.received: list[tuple[str, PostContent]] = []
+        self._oauth_account: OAuthAccount | None = None
+        self._oauth_failure: Exception | None = None
+        self.exchanged: list[tuple[str, str]] = []
 
     # --- 測試用的設定 ---
 
@@ -205,6 +233,33 @@ class MockAdapter:
 
     def set_check(self, account_name: str, result: CheckResult) -> None:
         self._checks[account_name] = result
+
+    def oauth_account(self, account: OAuthAccount) -> None:
+        self._oauth_account = account
+
+    def oauth_fail(self, message: str = "mock platform rejected the authorization code") -> None:
+        self._oauth_failure = OAuthFailed(message)
+
+    def oauth_unavailable(self) -> None:
+        """模擬平台連不上或回 5xx：無法確認授權是否有效。"""
+        self._oauth_failure = VerificationUnavailable()
+
+    # --- OAuthProvider ---
+
+    def authorization_url(self, state: str, redirect_uri: str) -> str:
+        query = urlencode({"state": state, "redirect_uri": redirect_uri})
+        return f"https://{self.platform}.test/oauth/authorize?{query}"
+
+    async def exchange_code(self, code: str, redirect_uri: str) -> OAuthAccount:
+        self.exchanged.append((code, redirect_uri))
+        if self._oauth_failure is not None:
+            raise self._oauth_failure
+        return self._oauth_account or OAuthAccount(
+            platform_user_id="1001",
+            account_name=f"mock_{self.platform}",
+            credential={"access_token": f"mock-token-{self.platform}"},
+            expires_at=clock.now() + timedelta(days=60),
+        )
 
     # --- PlatformAdapter ---
 

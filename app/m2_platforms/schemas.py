@@ -23,3 +23,17 @@ class PlatformAccountCreate(BaseModel):
     platform: str
     account_name: str
     webhook_url: str
+
+
+class OAuthStart(BaseModel):
+    """開始平台授權流程。重新連結（帶 platform_account_id）尚未實作。"""
+
+    # 文件頁預填的範例：不帶 platform_account_id，否則會被當成重新連結
+    model_config = {"json_schema_extra": {"examples": [{"platform": "threads"}]}}
+
+    platform: str
+    platform_account_id: int | None = None
+
+
+class OAuthStarted(BaseModel):
+    authorization_url: str

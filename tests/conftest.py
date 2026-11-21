@@ -11,6 +11,8 @@ TEST_DB = "mediagent_test"
 TEST_URL = ADMIN_URL.rsplit("/", 1)[0] + f"/{TEST_DB}"
 
 # 必須在匯入 app 之前設定，Settings 只讀一次
+# 測試不讀開發者本機的 .env（裡面可能有真實平台的 App 設定）
+os.environ["MEDIAGENT_ENV_FILE"] = ".env.not-used-in-tests"
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["JWT_SECRET"] = "test-only-jwt-secret-0123456789abcdef"
 os.environ["CREDENTIAL_ENCRYPTION_KEYS"] = Fernet.generate_key().decode()
