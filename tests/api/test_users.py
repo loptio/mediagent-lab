@@ -177,3 +177,63 @@ def test_enable_and_status_conflicts(client, db):
     assert client.get(f"{API}/auth/me", headers=login(client, "newbie@club.tw")).status_code == 200
     assert AuditAction.USER_ENABLE in audit_actions(db)
     assert set_status(client, admin, 9999, "active").status_code == 404
+
+
+def test_enable_and_disable_at_once_do_not_deadlock(db):
+    """啟用與停用同時進行：停用先鎖住全部管理員、等著目標；啟用已鎖住目標、正要寫稽核（外鍵指向管理員）。"""
+    import threading
+    import time
+
+    from app.core import audit
+    from app.core.db import SessionLocal
+    from app.core.enums import TargetType
+    from app.m1_accounts import repository
+
+    users, _ = seed_club(db)
+    admin_id, writer_id = users["admin"].id, users["writer"].id
+    enabling, disabling = SessionLocal(), SessionLocal()
+    result = {}
+    try:
+        repository.get_for_update(enabling, writer_id)
+        repository.lock_active_admins(disabling)
+
+        def disable_waits_for_target():
+            try:
+                repository.get_for_update(disabling, writer_id)
+                disabling.commit()
+                result["disable"] = "ok"
+            except Exception as exc:
+                disabling.rollback()
+                result["disable"] = type(exc).__name__
+
+        waiter = threading.Thread(target=disable_waits_for_target)
+        waiter.start()
+        time.sleep(0.3)
+        try:
+            admin = enabling.get(models.UserAccount, admin_id)
+            audit.write(
+                enabling, action=AuditAction.USER_ENABLE, actor=admin,
+                target_type=TargetType.USER_ACCOUNT, target_id=writer_id,
+            )
+            enabling.commit()
+            result["enable"] = "ok"
+        except Exception as exc:
+            enabling.rollback()
+            result["enable"] = type(exc).__name__
+        waiter.join(10)
+    finally:
+        enabling.close()
+        disabling.close()
+
+    assert result == {"enable": "ok", "disable": "ok"}
+
+
+@pytest.mark.parametrize(
+    "fields", [{"name": "Bob\u0000"}, {"email": "bob\u0000@club.tw"}, {"name": "Bob\u0007"}]
+)
+def test_control_characters_are_rejected(client, db, fields):
+    seed_club(db)
+
+    response = client.post(USERS, json=new_user(**fields), headers=login(client, "president@club.tw"))
+
+    assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR")

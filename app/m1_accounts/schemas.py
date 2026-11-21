@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import datetime
 from typing import Literal
 
@@ -6,6 +7,13 @@ from pydantic import BaseModel, field_validator
 
 # 只檢查基本格式：一個 @、前後都有內容、網域有點；不另外安裝 Email 驗證套件
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _reject_control_characters(value: str) -> str:
+    # NUL 等控制字元存不進資料庫，也不會出現在正常的 Email 或名稱裡
+    if any(unicodedata.category(char) == "Cc" for char in value):
+        raise ValueError("不可包含控制字元")
+    return value
 
 
 class LoginRequest(BaseModel):
@@ -61,7 +69,7 @@ class UserCreate(BaseModel):
     @classmethod
     def normalize_email(cls, value: str) -> str:
         """BR-40：移除前後空白並轉為小寫後再檢查格式。"""
-        value = value.strip().lower()
+        value = _reject_control_characters(value).strip().lower()
         if not EMAIL_PATTERN.match(value):
             raise ValueError("Email 格式錯誤")
         return value
@@ -69,7 +77,7 @@ class UserCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def name_not_blank(cls, value: str) -> str:
-        if not value.strip():
+        if not _reject_control_characters(value).strip():
             raise ValueError("名稱不可空白")
         return value.strip()
 
