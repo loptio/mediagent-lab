@@ -183,3 +183,79 @@ def test_relink_rules(client, db):
     assert (oauth.status_code, oauth.json()["code"]) == (400, "PLATFORM_REQUIRES_OAUTH")
     remove(client, admin, accounts["discord"].id)
     assert relink(client, admin, accounts["discord"].id).status_code == 404
+
+
+def test_record_of_a_removed_account_is_never_sent(client, db, mock_platforms):
+    """移除剛好發生在設定目標或排程的檢查之後：發佈時仍不可送到已移除的平台帳號。"""
+    _, accounts = seed_club(db)
+    publisher = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, publisher, [accounts["threads"].id, accounts["discord"].id])
+    schedule(client, publisher, post_id)
+    threads = db.get(models.PlatformAccount, accounts["threads"].id)
+    threads.removed, threads.removed_at = True, BEFORE  # 模擬：移除在排程檢查之後才提交
+    db.commit()
+    clock.set_fixed(DUE)
+
+    client.post(f"{API}/internal/publish-due", headers={"X-Cron-Secret": "test-cron-secret"})
+
+    assert mock_platforms[Platform.THREADS].received == []
+    records = client.get(
+        f"{API}/posts/{post_id}/publish-records", headers=login(client, "pr@club.tw")
+    ).json()
+    by_name = {
+        r["platform_account"]["account_name"]: (r["status"], r["failure_reason"]) for r in records["items"]
+    }
+    assert by_name == {"ntu_guitar_threads": ("FAILED", "OTHER"), "公告": ("SUCCEEDED", None)}
+    assert records["post_status"] == "PARTIALLY_FAILED"
+
+
+def test_removing_an_account_while_a_target_is_added_does_not_deadlock(db):
+    """設定目標鎖住貼文、正要新增指向該帳號的目標；同時移除鎖住了帳號、正要鎖定貼文。"""
+    import threading
+    import time
+
+    from app.core.db import SessionLocal
+    from app.m2_platforms import repository as platforms_repository
+    from app.m4_scheduling import repository as scheduling_repository
+
+    users, accounts = seed_club(db)
+    post = models.Post(content="社課", creator_id=users["publisher"].id)
+    db.add(post)
+    db.flush()
+    db.add(models.PostTarget(post_id=post.id, platform_account_id=accounts["threads"].id))
+    db.commit()
+    post_id, account_id = post.id, accounts["threads"].id
+    editing, removing = SessionLocal(), SessionLocal()
+    result = {}
+    try:
+        scheduling_repository.get_post_for_update(editing, post_id)
+        platforms_repository.get_active(removing, account_id, for_update=True)
+
+        def removal_waits_for_post():
+            try:
+                scheduling_repository.lock_editable_posts_targeting(removing, account_id)
+                removing.commit()
+                result["remove"] = "ok"
+            except Exception as exc:
+                removing.rollback()
+                result["remove"] = type(exc).__name__
+
+        waiter = threading.Thread(target=removal_waits_for_post)
+        waiter.start()
+        time.sleep(0.3)
+        try:
+            editing.add(models.PostTarget(post_id=post_id, platform_account_id=accounts["discord"].id))
+            editing.add(
+                models.PublishRecord(post_id=post_id, platform_account_id=account_id, status="PENDING")
+            )
+            editing.commit()
+            result["edit"] = "ok"
+        except Exception as exc:
+            editing.rollback()
+            result["edit"] = type(exc).__name__
+        waiter.join(10)
+    finally:
+        editing.close()
+        removing.close()
+
+    assert result == {"edit": "ok", "remove": "ok"}

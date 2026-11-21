@@ -137,8 +137,8 @@ def copy_post(db: Session, user: UserAccount, post_id: int) -> PostOut:
         action=AuditAction.POST_COPY,
         actor=user,
         target_type=TargetType.POST,
-        target_id=draft.id,
-        related_post_id=source.id,
+        target_id=source.id,
+        related_post_id=draft.id,  # 《資料模型》audit_log：複製時記錄新草稿
     )
     db.commit()
     return get_post(db, draft.id)

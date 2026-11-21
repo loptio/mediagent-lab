@@ -22,12 +22,15 @@ def get_post_including_deleted(db: Session, post_id: int) -> Post | None:
     return db.get(Post, post_id)
 
 
-def get_accounts(db: Session, account_ids: list[int]) -> list[PlatformAccount]:
+def get_accounts(db: Session, account_ids: list[int], *, lock: bool = False) -> list[PlatformAccount]:
+    """lock=True 時以 FOR SHARE 鎖定：檢查「未移除」到交易結束之間，帳號不會被移除。"""
     if not account_ids:
         return []
     stmt = select(PlatformAccount).where(PlatformAccount.id.in_(account_ids)).order_by(
         PlatformAccount.id
     )
+    if lock:
+        stmt = stmt.with_for_update(read=True)
     return list(db.scalars(stmt))
 
 

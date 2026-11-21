@@ -3,7 +3,7 @@ import unicodedata
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # 只檢查基本格式：一個 @、前後都有內容、網域有點；不另外安裝 Email 驗證套件
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -16,9 +16,21 @@ def _reject_control_characters(value: str) -> str:
     return value
 
 
+# 長度上限：Email 依 RFC 5321 為 254；密碼 256 足夠任何密碼管理器產生的長度。
+# 登入不需要登入就能呼叫，沒有上限的話，任何人都能把超長字串寫進只能新增的登入安全事件表。
+MAX_EMAIL_LENGTH = 254
+MAX_PASSWORD_LENGTH = 256
+MAX_NAME_LENGTH = 100
+
+
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
+
+    @field_validator("email")
+    @classmethod
+    def no_control_characters(cls, value: str) -> str:
+        return _reject_control_characters(value)
 
 
 class UserOut(BaseModel):
@@ -60,10 +72,10 @@ class UserCreate(BaseModel):
         }
     }
 
-    email: str
-    name: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
+    name: str = Field(max_length=MAX_NAME_LENGTH)
     role: Literal["admin", "publisher", "writer"]
-    initial_password: str
+    initial_password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
     @field_validator("email")
     @classmethod

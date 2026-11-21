@@ -62,18 +62,24 @@ def login(db: Session, email: str, password: str, ip: str) -> LoginResult:
         )
 
     email = normalize_email(email)
-    user = repository.get_by_email_for_update(db, email)
+    # 每一條路徑都先做一次同樣成本的密碼比對，再判斷帳號狀態：
+    # 回應時間不透露帳號是否存在、停用或鎖定（NFR-10）。
+    # 比對在鎖定帳號之前做，不會在 Argon2 計算期間佔著資料列。
+    found = repository.get_by_email(db, email)
+    password_ok = auth.verify_password(password, found.password_hash if found else _dummy_hash())
+    user = repository.get_for_update(db, found.id) if found else None
     if user is None:
-        auth.verify_password(password, _dummy_hash())
         raise _login_failed(db, LoginFailureReason.ACCOUNT_NOT_FOUND, email, None)
     if user.status != UserStatus.ACTIVE:
         raise _login_failed(db, LoginFailureReason.ACCOUNT_DISABLED, email, user)
     if user.locked_until is not None and now < user.locked_until:
         raise _login_failed(db, LoginFailureReason.ACCOUNT_LOCKED, email, user)  # 到期那一刻即解除
-    if not auth.verify_password(password, user.password_hash):
+    if not password_ok:
         user.failed_login_count += 1
         if user.failed_login_count >= settings.login_failures_before_lock:
-            user.locked_until = now + timedelta(minutes=settings.login_lock_minutes)  # BR-41
+            # BR-41：鎖定 15 分鐘；同時歸零，到期後重新有 5 次機會
+            user.locked_until = now + timedelta(minutes=settings.login_lock_minutes)
+            user.failed_login_count = 0
         raise _login_failed(db, LoginFailureReason.WRONG_PASSWORD, email, user)
 
     user.failed_login_count = 0
@@ -115,7 +121,11 @@ def logout_all(db: Session, user: UserAccount) -> None:
     """撤銷這個使用者全部的登入（BR-43）；其他使用者不受影響。"""
     repository.revoke_all_sessions(db, user.id, clock.now())
     audit.write(
-        db, action=AuditAction.LOGOUT_ALL, actor=user, target_type=TargetType.USER_ACCOUNT, target_id=user.id
+        db,
+        action=AuditAction.LOGOUT_ALL,
+        actor=user,
+        target_type=TargetType.USER_ACCOUNT,
+        target_id=user.id,
     )
     db.commit()
 

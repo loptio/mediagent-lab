@@ -7,7 +7,7 @@ from app.core.db import get_db
 from app.core.enums import Role
 from app.core.models import UserAccount
 
-from . import service
+from . import rate_limit, service
 from .schemas import (
     LoginRequest,
     LoginResponse,
@@ -28,7 +28,7 @@ REFRESH_COOKIE = "refresh_token"
 @router.post("/login", response_model=LoginResponse, summary="登入")
 def login(data: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     """所有失敗原因都回傳相同的 401；同一個 IP 一分鐘內最多 10 次登入嘗試。"""
-    ip = request.client.host if request.client else "unknown"
+    ip = rate_limit.client_ip(request, get_settings().trusted_proxy_hops)
     result = service.login(db, data.email, data.password, ip)
     settings = get_settings()
     # Refresh Token 只放在 HttpOnly Cookie；前後端同源部署，使用 SameSite=Lax（foundation-plan D-06）

@@ -38,7 +38,8 @@ def test_copy_creates_a_new_draft_without_targets(client, db, mock_platforms):
     original = client.get(f"{API}/posts/{source}", headers=admin).json()
     assert (original["status"], len(original["targets"])) == ("FAILED", 1)
     [audit] = db.scalars(select(models.AuditLog).where(models.AuditLog.action == AuditAction.POST_COPY))
-    assert (audit.actor_id, audit.target_id, audit.related_post_id) == (users["admin"].id, body["id"], source)
+    # 操作對象是來源貼文，關聯貼文是新草稿（《資料模型》audit_log、複製為新草稿.feature）
+    assert (audit.actor_id, audit.target_id, audit.related_post_id) == (users["admin"].id, source, body["id"])
 
 
 def test_copy_permissions_and_any_status(client, db):

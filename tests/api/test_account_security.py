@@ -218,7 +218,9 @@ def test_disabled_account_role_can_change_and_stays_disabled(client, db):
     response = change_role(client, login(client, "president@club.tw"), users["writer"].id, "publisher")
 
     assert (response.status_code, response.json()["role"], response.json()["status"]) == (
-        200, "publisher", "disabled"
+        200,
+        "publisher",
+        "disabled",
     )
 
 
@@ -268,3 +270,61 @@ def test_unlocking_a_disabled_account_keeps_it_disabled(client, db):
     assert (response.status_code, response.json()["status"]) == (200, "disabled")
     assert attempt(client, "newbie@club.tw").status_code == 401
     assert Role.WRITER == user(db, "newbie@club.tw").role
+
+
+# ---------- 審查後補上的情況 ----------
+
+
+def test_every_login_path_compares_a_password(client, db, monkeypatch):
+    """帳號不存在、停用、鎖定、密碼錯誤都要做一次同樣成本的密碼比對，回應時間才不會透露帳號狀態。"""
+    from app.core import auth
+
+    users, _ = seed_club(db)
+    users["writer"].status = "disabled"
+    users["admin"].locked_until = NOW + timedelta(minutes=5)
+    db.commit()
+    calls = []
+    real_verify = auth.verify_password
+    monkeypatch.setattr(
+        auth, "verify_password", lambda pw, hashed: calls.append(1) or real_verify(pw, hashed)
+    )
+
+    for email, password in [
+        ("nobody@club.tw", DEFAULT_PASSWORD),
+        ("newbie@club.tw", DEFAULT_PASSWORD),
+        ("president@club.tw", DEFAULT_PASSWORD),
+        ("pr@club.tw", "wrong-password"),
+    ]:
+        calls.clear()
+        assert attempt(client, email, password).status_code == 401
+        assert len(calls) == 1, email
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"email": "a" * 250 + "@x.tw", "password": "whatever"},
+        {"email": "pr@club.tw", "password": "p" * 257},
+        {"email": "pr\u0000@club.tw", "password": "whatever"},
+    ],
+)
+def test_oversized_or_control_character_login_is_rejected_without_storing(client, db, body):
+    seed_club(db)
+
+    response = client.post(LOGIN, json=body)
+
+    assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR")
+    assert events(db) == []
+
+
+def test_lock_expiry_gives_fresh_attempts(client, db):
+    """鎖定時失敗次數歸零：鎖定到期後輸錯一次不會立刻又被鎖 15 分鐘。"""
+    seed_club(db)
+    for _ in range(5):
+        attempt(client, "pr@club.tw", "wrong-password")
+    clock.set_fixed(NOW + timedelta(minutes=15))
+
+    attempt(client, "pr@club.tw", "wrong-password")
+
+    assert user(db, "pr@club.tw").locked_until == NOW + timedelta(minutes=15)  # 沒有延長
+    assert attempt(client, "pr@club.tw").status_code == 200

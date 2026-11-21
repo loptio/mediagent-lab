@@ -11,12 +11,6 @@ def get_by_email(db: Session, email: str) -> UserAccount | None:
     return db.scalar(select(UserAccount).where(UserAccount.email == email))
 
 
-def get_by_email_for_update(db: Session, email: str) -> UserAccount | None:
-    """登入時鎖定帳號：同時多次輸錯密碼時，失敗次數才不會少算。"""
-    stmt = select(UserAccount).where(UserAccount.email == email).with_for_update(key_share=True)
-    return db.scalar(stmt)
-
-
 def get_session_by_refresh_hash(db: Session, token_hash: str) -> UserSession | None:
     stmt = select(UserSession).where(UserSession.refresh_token_hash == token_hash).with_for_update()
     return db.scalar(stmt)
@@ -43,7 +37,13 @@ def list_all(db: Session) -> list[UserAccount]:
 
 
 def get_for_update(db: Session, user_id: int) -> UserAccount | None:
-    stmt = select(UserAccount).where(UserAccount.id == user_id).with_for_update(key_share=True)
+    """鎖定並重新讀取（populate_existing）：同一個請求先前讀到的舊資料不會被沿用。"""
+    stmt = (
+        select(UserAccount)
+        .where(UserAccount.id == user_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
     return db.scalar(stmt)
 
 

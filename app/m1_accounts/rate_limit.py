@@ -43,3 +43,19 @@ class LoginRateLimiter:
 
 
 limiter = LoginRateLimiter()
+
+
+def client_ip(request, trusted_hops: int) -> str:
+    """限流用的用戶端 IP。
+
+    沒有反向代理（本機直接連）時用連線的來源位址。前面有 trusted_hops 層受信任的代理（例如 Render 一層）時，
+    X-Forwarded-For 由最右邊數第 trusted_hops 個才是真正的用戶端；更左邊的內容由用戶端自己填，不能採信。
+    """
+    peer = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("x-forwarded-for")
+    if trusted_hops <= 0 or not forwarded:
+        return peer
+    entries = [entry.strip() for entry in forwarded.split(",") if entry.strip()]
+    if not entries:
+        return peer
+    return entries[-min(trusted_hops, len(entries))]

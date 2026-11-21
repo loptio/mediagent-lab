@@ -51,3 +51,20 @@ def test_refused_attempts_do_not_extend_the_block():
         assert limiter.attempt(IP, at(second), limit=10) is not None
 
     assert limiter.attempt(IP, at(60), limit=10) is None
+
+
+def test_client_ip_behind_trusted_proxies():
+    """X-Forwarded-For 由最右邊開始數：受信任的代理有幾層，就取右邊第幾個；左邊的內容由用戶端控制，不採信。"""
+    from types import SimpleNamespace
+
+    from app.m1_accounts.rate_limit import client_ip
+
+    def request(forwarded=None, peer="10.0.0.2"):
+        headers = {"x-forwarded-for": forwarded} if forwarded else {}
+        return SimpleNamespace(headers=headers, client=SimpleNamespace(host=peer))
+
+    assert client_ip(request("1.1.1.1"), trusted_hops=0) == "10.0.0.2"
+    assert client_ip(request("spoofed, 203.0.113.5"), trusted_hops=1) == "203.0.113.5"
+    assert client_ip(request("203.0.113.5, 172.16.0.9"), trusted_hops=2) == "203.0.113.5"
+    assert client_ip(request(None), trusted_hops=1) == "10.0.0.2"
+    assert client_ip(request("203.0.113.5"), trusted_hops=3) == "203.0.113.5"
