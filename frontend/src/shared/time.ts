@@ -55,3 +55,10 @@ export function nextSlotTaipei(now: Date = new Date(), leadMinutes = 10): { date
 export function isFuture(date: string, time: string, now: Date = new Date()): boolean {
   return new Date(taipeiToUtcIso(date, time)).getTime() > now.getTime()
 }
+
+/** 台灣日期 `YYYY-MM-DD` 加減天數 */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const shifted = new Date(Date.UTC(y, m - 1, d + days))
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`
+}

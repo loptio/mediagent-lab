@@ -59,6 +59,12 @@ export const router = createRouter({
           component: () => import('@/modules/m1-accounts/UsersPage.vue'),
           meta: { title: '幹部帳號', minRole: 'admin' },
         },
+        {
+          path: 'audit',
+          name: 'audit',
+          component: () => import('@/modules/audit-query/AuditPage.vue'),
+          meta: { title: '稽核紀錄', minRole: 'admin' },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: { name: 'posts' } },

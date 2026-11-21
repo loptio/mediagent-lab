@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
+import { authApi } from '../api/endpoints'
 import { useAuthStore } from '../auth'
 import { label, ROLE_LABELS } from '../labels'
 
@@ -18,6 +19,7 @@ const menuItems = computed(() =>
     { path: '/posts', title: '貼文', show: true },
     { path: '/platform-accounts', title: '平台帳號', show: true },
     { path: '/users', title: '幹部帳號', show: auth.hasRole('admin') },
+    { path: '/audit', title: '稽核紀錄', show: auth.hasRole('admin') },
   ].filter((item) => item.show),
 )
 
@@ -36,6 +38,36 @@ async function logout() {
   ElMessage.success('已登出')
   await router.push({ name: 'login' })
 }
+
+/** 登出所有裝置（FR-24）：撤銷這個帳號在每一台裝置上的登入，例如手機遺失時使用 */
+async function logoutAll() {
+  try {
+    await ElMessageBox.confirm('會讓這個帳號在所有裝置（包含這一台）都登出。確定嗎？', '登出所有裝置', {
+      confirmButtonText: '全部登出',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  loggingOut.value = true
+  try {
+    await authApi.logoutAll()
+  } catch {
+    // 失敗也清除本機登入狀態；錯誤由 401 處理或稍後重新登入時得知
+  } finally {
+    loggingOut.value = false
+    auth.clear()
+    queryClient.clear()
+  }
+  ElMessage.success('已登出所有裝置')
+  await router.push({ name: 'login' })
+}
+
+function onUserCommand(command: string) {
+  if (command === 'logout') void logout()
+  if (command === 'logout-all') void logoutAll()
+}
 </script>
 
 <template>
@@ -48,7 +80,14 @@ async function logout() {
       <div class="user">
         <span class="user-name">{{ auth.user?.name }}</span>
         <el-tag size="small" effect="plain">{{ label(ROLE_LABELS, auth.role) }}</el-tag>
-        <el-button size="small" :loading="loggingOut" @click="logout">登出</el-button>
+        <el-dropdown split-button size="small" trigger="click" @click="logout" @command="onUserCommand">
+          {{ loggingOut ? '登出中…' : '登出' }}
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="logout-all">登出所有裝置</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </el-header>
     <el-main class="layout-main">

@@ -5,7 +5,7 @@ import { reactive, ref } from 'vue'
 
 import { usersApi, type UserCreate, type UserDetail } from '@/shared/api/endpoints'
 import { useAuthStore } from '@/shared/auth'
-import { label, ROLE_LABELS, USER_STATUS_LABELS } from '@/shared/labels'
+import { label, ROLE_LABELS, USER_STATUS_LABELS, type Role } from '@/shared/labels'
 import QueryError from '@/shared/QueryError.vue'
 import { formatTaipei } from '@/shared/time'
 
@@ -77,6 +77,41 @@ async function disable(user: UserDetail) {
 function enable(user: UserDetail) {
   statusMutation.mutate({ user, status: 'active' })
 }
+
+// ---------- 調整角色（FR-04）：立即生效；系統至少要留一位啟用中的管理員（BR-19） ----------
+const roleMutation = useMutation({
+  mutationFn: (args: { user: UserDetail; role: Role }) => usersApi.setRole(args.user.id, args.role),
+  onSuccess: (user) => {
+    ElMessage.success(`已把「${user.name}」調整為${label(ROLE_LABELS, user.role)}`)
+  },
+  // 失敗時也重新讀取，讓下拉選單回到實際的角色
+  onSettled: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+})
+
+async function changeRole(user: UserDetail, role: Role) {
+  if (role === user.role) return
+  try {
+    await ElMessageBox.confirm(
+      user.id === auth.user?.id && role !== 'admin'
+        ? `確定要把自己調整為${label(ROLE_LABELS, role)}嗎？調整後你會立刻失去管理員權限。`
+        : `確定要把「${user.name}」從${label(ROLE_LABELS, user.role)}調整為${label(ROLE_LABELS, role)}嗎？`,
+      '調整角色',
+      { confirmButtonText: '調整', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  roleMutation.mutate({ user, role })
+}
+
+// ---------- 解除鎖定（FR-26）：連續登入失敗被鎖定時，管理員可以提前解除 ----------
+const unlockMutation = useMutation({
+  mutationFn: (user: UserDetail) => usersApi.unlock(user.id),
+  onSuccess: (user) => {
+    ElMessage.success(`已解除「${user.name}」的鎖定`)
+    void queryClient.invalidateQueries({ queryKey: ['users'] })
+  },
+})
 </script>
 
 <template>
@@ -91,8 +126,18 @@ function enable(user: UserDetail) {
     <el-table v-else-if="data" :data="data.items" row-key="id">
       <el-table-column prop="name" label="姓名" min-width="120" />
       <el-table-column prop="email" label="Email" min-width="200" />
-      <el-table-column label="角色" width="100">
-        <template #default="{ row }">{{ label(ROLE_LABELS, row.role) }}</template>
+      <el-table-column label="角色" width="130">
+        <template #default="{ row }">
+          <el-select
+            :model-value="row.role"
+            size="small"
+            :aria-label="`${row.name} 的角色`"
+            :loading="roleMutation.isPending.value && roleMutation.variables.value?.user.id === row.id"
+            @update:model-value="(role: Role) => changeRole(row, role)"
+          >
+            <el-option v-for="(text, value) in ROLE_LABELS" :key="value" :label="text" :value="value" />
+          </el-select>
+        </template>
       </el-table-column>
       <el-table-column label="狀態" width="150">
         <template #default="{ row }">
@@ -104,8 +149,18 @@ function enable(user: UserDetail) {
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="110">
+      <el-table-column label="操作" width="190">
         <template #default="{ row }">
+          <el-button
+            v-if="row.is_locked"
+            size="small"
+            type="warning"
+            plain
+            :loading="unlockMutation.isPending.value && unlockMutation.variables.value?.id === row.id"
+            @click="unlockMutation.mutate(row)"
+          >
+            解除鎖定
+          </el-button>
           <el-button
             v-if="row.status === 'active'"
             size="small"

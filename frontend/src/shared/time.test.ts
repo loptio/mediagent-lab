@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatTaipei, isFuture, nextSlotTaipei, taipeiToUtcIso, todayTaipei, toTaipeiInput } from './time'
+import { addDays, formatTaipei, isFuture, nextSlotTaipei, taipeiToUtcIso, todayTaipei, toTaipeiInput } from './time'
 
 describe('台灣時間換算', () => {
   it('UTC 顯示成台灣時間', () => {
@@ -31,5 +31,11 @@ describe('台灣時間換算', () => {
     const now = new Date('2026-10-06T04:00:00Z')
     expect(isFuture('2026-10-06', '12:05', now)).toBe(true)
     expect(isFuture('2026-10-06', '12:00', now)).toBe(false)
+  })
+
+  it('日期加減天數（跨月、跨年）', () => {
+    expect(addDays('2026-10-31', 1)).toBe('2026-11-01')
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28')
   })
 })
