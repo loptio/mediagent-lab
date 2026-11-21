@@ -50,9 +50,22 @@ CAPABILITIES: dict[Platform, Capabilities] = {
 
 
 @dataclass(frozen=True)
+class ImageVersion:
+    """送到某個平台的那一個圖片版本（Instagram 用裁切後的版本，其他平台用原圖）。"""
+
+    url: str
+    storage_key: str
+    sha256: str
+    width: int
+    height: int
+    variant: str  # original／instagram
+    format: str = "jpeg"
+
+
+@dataclass(frozen=True)
 class PostContent:
     text: str
-    image_url: str | None = None
+    image: ImageVersion | None = None
 
 
 @dataclass(frozen=True)

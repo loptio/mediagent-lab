@@ -376,8 +376,8 @@ app/m4_scheduling/
 | `INSTAGRAM_APP_ID`、`INSTAGRAM_APP_SECRET` | Instagram OAuth |
 | `OAUTH_REDIRECT_BASE_URL` | OAuth 回呼的後端網址 |
 | `FRONTEND_ORIGIN` | CORS 與 OAuth 完成後導回的前端網址 |
-| `MEDIA_STORAGE_BACKEND` | `local` 或正式環境的物件儲存 |
-| 物件儲存的金鑰與公開網址前綴 | 選定服務後補上 |
+| `MEDIA_STORAGE_BACKEND` | `local`（本機檔案）或 `db`（正式環境，圖片存在 Neon 的 `media_blob` 表） |
+| `MEDIA_BASE_URL` | 平台下載圖片用的網址前綴；正式環境為 `https://<Render 服務>.onrender.com/media` |
 | `DEV_MODE` | 開發模式（正式環境必須為 0） |
 | `LOG_LEVEL`、`PORT` | Log 等級；服務埠號 |
 

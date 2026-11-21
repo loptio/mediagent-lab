@@ -97,6 +97,8 @@ AUTH_FAILURE = {
     "暫時無法驗證": "VERIFICATION_UNAVAILABLE",
     "平台帳號識別碼不一致": "PLATFORM_ID_MISMATCH",
 }
+IMAGE_FORMAT = {"JPEG": "jpeg", "PNG": "png"}
+IMAGE_VARIANT = {"原圖": "original", "Instagram 版本": "instagram"}
 RECORD_KIND = {"稽核紀錄": "audit", "登入安全事件": "login_security", "平台授權事件": "platform_auth"}
 YES_NO = {"是": True, "否": False, "true": True, "false": False}
 

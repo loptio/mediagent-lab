@@ -1,21 +1,33 @@
-"""M3 貼文編輯：建立、取得、列表、修改、刪除、複製為新草稿、預覽。
+"""M3 貼文編輯：建立、取得、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片。"""
 
-圖片尚未實作。
-"""
+import hashlib
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import audit, auth, clock, publish_rules
-from app.core.enums import AuditAction, AuthStatus, PostStatus, Role, TargetType
+from app.core.enums import AuditAction, AuthStatus, Platform, PostStatus, Role, TargetType
 from app.core.errors import DomainError, not_found
-from app.core.models import PlatformAccount, Post, UserAccount
+from app.core.media import get_storage
+from app.core.models import MediaFile, PlatformAccount, Post, PostImage, UserAccount
 from app.core.platforms import effective_auth_status, get_adapter
 from app.m4_scheduling import lifecycle
 
-from . import repository
-from .schemas import PostListItem, PostOut, PostPage, PreviewItem, PreviewOut, TargetOut, UserRef
+from . import images, repository
+from .schemas import (
+    ImageOut,
+    PostListItem,
+    PostOut,
+    PostPage,
+    PreviewImage,
+    PreviewItem,
+    PreviewOut,
+    TargetOut,
+    UserRef,
+)
 
 PAGE_SIZES = (20, 50, 100)
+MAX_IMAGE_BYTES = 8_000_000  # BR-04
 EDITABLE_STATUSES = (PostStatus.DRAFT, PostStatus.SCHEDULED)
 
 
@@ -32,6 +44,23 @@ def _targets(accounts: list[PlatformAccount]) -> list[TargetOut]:
     ]
 
 
+def image_out(image: PostImage | None) -> ImageOut | None:
+    if image is None:
+        return None
+    original, instagram = image.original, image.instagram
+    return ImageOut(
+        format=original.format,
+        size_bytes=original.size_bytes,
+        width=original.width,
+        height=original.height,
+        public_url=original.public_url,
+        ig_public_url=instagram.public_url,
+        ig_width=instagram.width,
+        ig_height=instagram.height,
+        ig_cropped=image.cropped,
+    )
+
+
 def _to_out(db: Session, post: Post) -> PostOut:
     return PostOut(
         id=post.id,
@@ -41,6 +70,7 @@ def _to_out(db: Session, post: Post) -> PostOut:
         scheduled_by=post.scheduled_by,
         creator=UserRef(id=post.creator.id, name=post.creator.name),
         created_at=post.created_at,
+        image=image_out(post.image),
         targets=_targets(repository.targets_of(db, [post.id])[post.id]),
     )
 
@@ -79,6 +109,7 @@ def list_posts(db: Session, status: str | None, page: int, page_size: int) -> Po
                 scheduled_at=post.scheduled_at,
                 created_at=post.created_at,
                 creator=UserRef(id=post.creator.id, name=post.creator.name),
+                has_image=post.image is not None,
                 targets=_targets(targets[post.id]),
             )
             for post in posts
@@ -123,7 +154,9 @@ def delete_post(db: Session, user: UserAccount, post_id: int) -> None:
     if post.status == PostStatus.SCHEDULED:
         lifecycle.on_post_deleting(db, post, user)  # 待發佈紀錄改為已取消
     post.deleted_at = clock.now()
+    orphaned = _detach_image(db, post)
     db.commit()
+    _delete_files(orphaned)
 
 
 def copy_post(db: Session, user: UserAccount, post_id: int) -> PostOut:
@@ -133,6 +166,15 @@ def copy_post(db: Session, user: UserAccount, post_id: int) -> PostOut:
         raise not_found("找不到貼文")
     auth.ensure_owner_or_role(user, source.creator_id, Role.PUBLISHER)
     draft = repository.create(db, user.id, source.content)
+    if source.image is not None:
+        # 複本與來源共用同一份圖片檔案（architecture 決策 20），最後一個引用拿掉時才刪檔
+        db.add(
+            PostImage(
+                post_id=draft.id,
+                original_media_id=source.image.original_media_id,
+                ig_media_id=source.image.ig_media_id,
+            )
+        )
     audit.write(
         db,
         action=AuditAction.POST_COPY,
@@ -162,6 +204,19 @@ def preview(db: Session, post_id: int) -> PreviewOut:
         warnings = []
         if count > limit:
             warnings.append("CONTENT_TOO_LONG")
+        image = None
+        if post.image is not None:
+            # Instagram 預覽裁切後的版本，Threads 與 Discord 預覽原圖
+            on_instagram = account.platform == Platform.INSTAGRAM
+            media = post.image.instagram if on_instagram else post.image.original
+            image = PreviewImage(
+                url=media.public_url,
+                width=media.width,
+                height=media.height,
+                variant="instagram" if on_instagram else "original",
+            )
+            if on_instagram and post.image.cropped:
+                warnings.append("IMAGE_CROPPED")
         if target.auth_status == AuthStatus.INVALID:
             warnings.append("AUTH_INVALID")
         items.append(
@@ -170,7 +225,100 @@ def preview(db: Session, post_id: int) -> PreviewOut:
                 text=post.content,
                 char_count=count,
                 char_limit=limit,
+                image=image,
                 warnings=warnings,
             )
         )
     return PreviewOut(items=items)
+
+
+# ---------- 圖片（FR-11、BR-03～BR-06） ----------
+
+
+def _store(data: bytes, width: int, height: int) -> MediaFile:
+    storage = get_storage()
+    key = storage.save(data)
+    return MediaFile(
+        storage_key=key,
+        public_url=storage.url(key),
+        sha256=hashlib.sha256(data).hexdigest(),
+        size_bytes=len(data),
+        width=width,
+        height=height,
+    )
+
+
+def attach_image(db: Session, user: UserAccount, post_id: int, data: bytes) -> ImageOut:
+    """附加一張 JPEG（最多 8,000,000 位元組），同時產生 Instagram 版本（BR-03、BR-04、BR-06）。"""
+    post = _editable_post(db, user, post_id)
+    if post.image is not None:
+        raise DomainError(409, "IMAGE_ALREADY_ATTACHED", "每則貼文最多一張圖片，請先移除原本的圖片")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise DomainError(422, "IMAGE_TOO_LARGE", "圖片不可超過 8 MB（8,000,000 位元組）")
+    width, height = images.inspect(data)
+    ig_width, ig_height = images.instagram_size(width, height)
+
+    stored: list[MediaFile] = []
+    try:
+        original = _store(data, width, height)
+        stored.append(original)
+        if (ig_width, ig_height) != (width, height):
+            instagram = _store(images.crop_center(data, ig_width, ig_height), ig_width, ig_height)
+            stored.append(instagram)
+        else:
+            instagram = original  # 比例已符合：Instagram 版本就是原圖
+        db.add_all(stored)
+        db.flush()
+        image = PostImage(post_id=post.id, original_media_id=original.id, ig_media_id=instagram.id)
+        db.add(image)
+        db.commit()
+    except Exception:
+        db.rollback()
+        _delete_files([media.storage_key for media in stored])  # 沒有寫進資料庫的檔案不留下
+        raise
+    db.refresh(post)
+    return image_out(post.image)
+
+
+def remove_image(db: Session, user: UserAccount, post_id: int) -> None:
+    """移除圖片；目標含 Instagram 時不可移除（BR-05）。圖片檔案沒有其他貼文使用時一併刪除。"""
+    post = _editable_post(db, user, post_id)
+    if post.image is None:
+        raise not_found("這則貼文沒有圖片")
+    targets = repository.targets_of(db, [post.id])[post.id]
+    if any(account.platform == Platform.INSTAGRAM for account in targets):
+        raise DomainError(
+            409, "IMAGE_REQUIRED_BY_INSTAGRAM", "目標含 Instagram 時不能移除圖片，請先取消選擇 Instagram"
+        )
+    orphaned = _detach_image(db, post)
+    db.commit()
+    _delete_files(orphaned)
+
+
+def _detach_image(db: Session, post: Post) -> list[str]:
+    """拿掉貼文與圖片的關聯；回傳不再被任何貼文使用、應該刪除的檔案（提交後再刪）。"""
+    image = db.scalar(select(PostImage).where(PostImage.post_id == post.id))
+    if image is None:
+        return []
+    media_ids = {image.original_media_id, image.ig_media_id}
+    db.delete(image)
+    db.flush()
+    orphaned = []
+    for media_id in media_ids:
+        still_used = db.scalar(
+            select(PostImage.id).where(
+                (PostImage.original_media_id == media_id) | (PostImage.ig_media_id == media_id)
+            )
+        )
+        if still_used is None:
+            media = db.get(MediaFile, media_id)
+            orphaned.append(media.storage_key)
+            db.delete(media)
+    db.flush()
+    return orphaned
+
+
+def _delete_files(keys: list[str]) -> None:
+    storage = get_storage()
+    for key in keys:
+        storage.delete(key)

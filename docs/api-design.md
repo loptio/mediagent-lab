@@ -115,7 +115,7 @@ Response：
 | 35 | GET | `/health` | 公開 | 200 | — | 維運 | D |
 
 - `/internal/*` 需帶 `X-Cron-Secret`，不列入公開文件（`include_in_schema=False`）。
-- 本機開發另有 `GET /media/{storage_key}` 提供本機圖片（只在 `MEDIA_STORAGE_BACKEND=local` 時啟用）。
+- `GET /media/{storage_key}` 提供貼文圖片（`MEDIA_STORAGE_BACKEND=local` 讀檔案、`db` 讀 `media_blob` 表），不需要登入；Threads、Instagram 發文時從這裡下載圖片。
 
 ---
 
@@ -471,6 +471,7 @@ Request `{"scheduled_at": "2026-10-06T04:00:00Z"}`。草稿改為已排程並建
 | 422 | `IMAGE_TOO_LARGE` | 超過 8,000,000 位元組 | BR-04 |
 | 422 | `IMAGE_DIMENSION_INVALID` | 寬高不符合目標平台限制 | 4.3.1 |
 | 422 | `IMAGE_REQUIRED_FOR_INSTAGRAM` | 目標含 Instagram 但沒有圖片 | BR-05 |
+| 422 | `IMAGE_URL_NOT_PUBLIC` | 目標含 Threads 或 Instagram，但圖片網址不是平台連得到的公開 https 網址（原型新增） | 4.3.1 |
 | 422 | `NO_TARGET` | 沒有目標平台帳號 | BR-07、BR-46 |
 | 422 | `SCHEDULED_POST_REQUIRES_TARGET` | 已排程貼文清空目標 | BR-07 |
 | 422 | `TARGET_NOT_AVAILABLE` | 目標不存在或已移除 | BR-08 |

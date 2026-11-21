@@ -36,9 +36,11 @@ COPY scripts/entrypoint.sh scripts/entrypoint.sh
 # app/main.py 預設從 /srv/frontend/dist 提供前端
 COPY --from=frontend /web/dist frontend/dist
 
-# 以非 root 使用者執行
+# 以非 root 使用者執行；圖片目錄先交給這個使用者，掛上 volume 後才寫得進去
+ENV MEDIA_DIR=/srv/media
 RUN useradd --create-home --uid 1000 appuser \
-    && chmod +x scripts/entrypoint.sh
+    && chmod +x scripts/entrypoint.sh \
+    && mkdir -p /srv/media && chown appuser /srv/media
 USER appuser
 
 EXPOSE 8000

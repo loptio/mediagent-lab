@@ -84,6 +84,8 @@ def set_targets(db: Session, user: UserAccount, post_id: int, account_ids: list[
             422, "TARGET_AUTH_INVALID", "平台帳號的授權已失效，請管理員重新連結", {"accounts": invalid}
         )
 
+    # BR-05：沒有圖片的貼文不能選 Instagram（草稿也一樣）
+    publish_rules.require_image_for_instagram(post, accounts)
     if scheduled:
         # 已排程貼文的新目標也必須符合發佈限制（BR-24），例如字數上限
         publish_rules.check(post, accounts, now)

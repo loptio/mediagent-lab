@@ -104,13 +104,19 @@ pnpm typecheck && pnpm test && pnpm build
 pnpm gen:api
 ```
 
+### 圖片
+
+- `POST /api/v1/posts/{id}/image`（`multipart/form-data`，欄位 `file`）：一則貼文一張 JPEG，最多 8,000,000 位元組。比例超出 4:5～1.91:1 時自動從中間裁出 Instagram 版本（BR-06）。
+- 選 Instagram 為目標時必須先附圖；目標含 Instagram 時不能移除圖片（BR-05）。
+- Discord 以附件上傳圖片，本機就能發；Threads、Instagram 由平台下載圖片，`.env` 的 `MEDIA_BASE_URL` 必須是平台連得到的公開 https 網址，否則排程或發佈時回 `422 IMAGE_URL_NOT_PUBLIC`。
+- 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案；正式環境 `db` 存在 Neon 的 `media_blob` 表（不需要另外申請物件儲存），兩種都由後端 `/media/{key}` 提供。
+
 ### 測試
 
 測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
 
-`spec/features/` 的 452 個驗收例子由 `tests/bdd/` 以 pytest-bdd 執行（architecture §13）：目前 404 個通過、48 個標為待實作。待實作的原因寫在各 `tests/bdd/test_<功能>.py` 的 `PENDING`：
+`spec/features/` 的 452 個驗收例子由 `tests/bdd/` 以 pytest-bdd 執行（architecture §13）：目前 447 個通過、5 個標為待確認。原因寫在各 `tests/bdd/test_<功能>.py` 的 `PENDING`：
 
-- 43 個依賴圖片功能（上傳、裁切、物件儲存，以及 Instagram 必須附圖）。
 - 4 個是規格例子本身互相衝突，待小組確認（排程發佈 1、重新連結 1、修改貼文 2）。
 - 1 個是背景重送進行到一半的中間狀態，需要非同步的測試才能觀察。
 
@@ -126,14 +132,16 @@ python -m pytest -q
 
 | 已完成 | 尚未實作 |
 |---|---|
-| 13 張資料表與第一版 migration、只能新增的稽核表 | 圖片（上傳、移除、Instagram 裁切、物件儲存） |
-| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | Instagram 的串接；Threads、Instagram 的重新連結 |
+| 14 張資料表與 migration、只能新增的稽核表 | Instagram 的真實串接（需要 Instagram 專業帳號） |
+| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | 部署（圖片的公開網址隨部署而來） |
 | 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | 前端：圖片、預覽、稽核查詢、變更歷程的畫面 |
-| 貼文：建立、列表、修改、刪除、複製為新草稿、預覽 | 452 個驗收例子（pytest-bdd）、E2E |
+| 貼文：建立、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片 | E2E |
 | 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | 部署 |
 | 三步發佈引擎、發佈紀錄與變更歷程、稽核查詢 | |
-| Discord Webhook 連結、重新連結與真實發文；Threads 授權連結與真實發文；移除平台帳號 | |
+| Discord：連結、重新連結、真實發文（含圖片附件）；Threads：授權連結、重新連結、真實發文 | |
+| 452 個驗收例子：447 通過、5 待確認 | |
 | 前端：登入、貼文列表與編輯、排程、發佈與結果、平台帳號、幹部帳號 | |
+| 圖片：本機檔案或 PostgreSQL（Neon）兩種儲存 | |
 
 ## Project Info
 

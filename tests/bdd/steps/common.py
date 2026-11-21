@@ -98,6 +98,9 @@ LABEL_COLUMNS = {
     "reason": [L.HISTORY_REASON, L.AUDIT_REASON],
     "result": [L.POST_STATUS],
     "removed": [L.YES_NO],
+    "image_format": [L.IMAGE_FORMAT],
+    "format": [L.IMAGE_FORMAT],
+    "image_variant": [L.IMAGE_VARIANT],
 }
 
 
@@ -236,8 +239,35 @@ def ensure_record(world, post_id: int, account_id: int) -> models.PublishRecord:
 
 @given(step('貼文 "X" 已附加以下圖片：'))
 def given_image(world, a, datatable):
-    # 圖片功能尚未實作：只記下來，需要圖片結果的例子標為待實作
-    world.images[a] = rows(datatable)
+    """直接建立圖片資料（不產生檔案）；Instagram 版本依 BR-06 計算，網址以原圖網址加上 -ig。"""
+    import hashlib
+
+    from app.m3_posts import images
+
+    [row] = rows(datatable)
+    width, height = int(row["width"]), int(row["height"])
+    url = row.get("url") or f"https://media.test/{a}.jpg"
+
+    def media(w, h, public_url):
+        record = models.MediaFile(
+            storage_key=f"{hashlib.md5(public_url.encode()).hexdigest()}.jpg",
+            public_url=public_url,
+            sha256=hashlib.sha256(public_url.encode()).hexdigest(),
+            size_bytes=int(float(row.get("size_mb") or 1) * 1_000_000),
+            width=w,
+            height=h,
+        )
+        world.db.add(record)
+        world.db.flush()
+        return record
+
+    original = media(width, height, url)
+    ig_size = images.instagram_size(width, height)
+    instagram = original if ig_size == (width, height) else media(*ig_size, url.replace(".jpg", "-ig.jpg"))
+    world.db.add(
+        models.PostImage(post_id=world.post_id(a), original_media_id=original.id, ig_media_id=instagram.id)
+    )
+    world.db.commit()
 
 
 @given(step('貼文 "X" 的內容長度為 (?P<n>\\d+) 字元'))
@@ -726,6 +756,9 @@ def item_value(world, item: dict, column: str) -> Any:
         "platform": lambda: item.get("platform") or account.get("platform"),
         "account_name": lambda: item.get("account_name") or account.get("account_name"),
         "auth_status": lambda: item.get("auth_status") or account.get("auth_status"),
+        "image_url": lambda: (item.get("image") or {}).get("url"),
+        "image_width": lambda: (item.get("image") or {}).get("width"),
+        "image_height": lambda: (item.get("image") or {}).get("height"),
         "post_url": lambda: item.get("platform_post_url"),
         "content": lambda: item.get("content", item.get("text")),
         "actor": lambda: (item.get("actor") or {}).get("email"),
@@ -931,3 +964,96 @@ def then_new_draft_without_records(world):
 @then(step("查詢結果的貼文已刪除標示為 (?P<flag>true|false)"))
 def then_post_deleted_flag(world, flag):
     assert world.response.json()["post_deleted"] is (flag == "true")
+
+
+# ---------- 圖片 ----------
+
+
+def image_bytes(row: dict[str, str]) -> bytes:
+    """依例子的格式、寬高與大小產生圖片；大小不足時在檔案結尾補零（不影響讀取）。"""
+    import io
+
+    from PIL import Image
+
+    fmt = row.get("format", "JPEG").upper()
+    buffer = io.BytesIO()
+    Image.new("RGB", (int(row["width"]), int(row["height"])), (30, 90, 160)).save(
+        buffer, format="JPEG" if fmt in ("JPEG", "JPG") else fmt
+    )
+    data = buffer.getvalue()
+    if row.get("size_bytes"):
+        size = int(row["size_bytes"])
+    elif row.get("size_mb"):
+        size = int(float(row["size_mb"]) * 1_000_000)
+    else:
+        size = len(data)
+    return data + b"\0" * max(0, size - len(data))
+
+
+@when(step('"X" 為貼文 "X" 附加以下圖片：'))
+def when_attach_image(world, a, b, datatable):
+    [row] = rows(datatable)
+    files = {"file": ("image.jpg", image_bytes(row), "image/jpeg")}
+    world.request(a, "POST", f"/posts/{world.post_id(b)}/image", files=files)
+
+
+@when(step('"X" 移除貼文 "X" 的圖片'))
+def when_remove_image(world, a, b):
+    world.request(a, "DELETE", f"/posts/{world.post_id(b)}/image")
+
+
+def check_image(world, alias: str, row: dict[str, str]) -> None:
+    world.db.expire_all()
+    image = world.db.get(models.Post, world.post_id(alias)).image
+    assert image is not None, f"貼文 {alias} 沒有圖片"
+    for column, raw in row.items():
+        if column.startswith("ig_"):
+            check(column, getattr(image.instagram, column[3:]), raw, f"貼文 {alias} 的 Instagram 版本")
+        else:
+            check(column, getattr(image.original, column), raw, f"貼文 {alias} 的圖片")
+
+
+@then(step('貼文 "X" 的圖片為：'))
+def then_post_image(world, a, datatable):
+    check_image(world, a, rows(datatable)[0])
+
+
+@then(step("新草稿的圖片為："))
+def then_new_draft_image(world, datatable):
+    check_image(world, "新草稿", rows(datatable)[0])
+
+
+@then(step('貼文 "X" 沒有圖片'))
+def then_no_image(world, a):
+    world.db.expire_all()
+    assert world.db.get(models.Post, world.post_id(a)).image is None
+
+
+@then(step('圖片檔案 "X" 不存在'))
+def then_image_file_gone(world, a):
+    world.db.expire_all()
+    assert world.db.scalar(select(models.MediaFile.id).where(models.MediaFile.public_url == a)) is None
+
+
+@then(step('平台帳號 "X" 收到的圖片尺寸為 (?P<w>\\d+) x (?P<h>\\d+)'))
+def then_received_image_size(world, a, w, h):
+    received = [content for name, content in mock_of(world, a).received if name == a]
+    assert received, f"{a} 沒有收到貼文"
+    image = received[-1].image
+    assert image is not None and (image.width, image.height) == (int(w), int(h))
+
+
+@given(step('貼文 "X" 的圖片原圖雜湊值為 "X"，Instagram 版本雜湊值為 "X"'))
+def given_image_hashes(world, a, b, c):
+    image = world.db.get(models.Post, world.post_id(a)).image
+    image.original.sha256 = b
+    if image.cropped:
+        image.instagram.sha256 = c
+    world.db.commit()
+
+
+@then(step('平台帳號 "X" 收到的圖片網址為 "X"'))
+def then_received_image_url(world, a, b):
+    received = [content for name, content in mock_of(world, a).received if name == a]
+    assert received, f"{a} 沒有收到貼文"
+    assert received[-1].image is not None and received[-1].image.url == b

@@ -12,9 +12,7 @@ from tests.bdd.labels import code, tw_time  # noqa: F401
 from tests.bdd.steps.common import Result, iso, rows, step  # noqa: F401
 
 # 尚未實作的功能：{"Rule 或 Rule — Example": "原因"}
-PENDING: dict[str, str] = {
-    "後置：圖片檔案不再被其他資料引用時，刪除實體檔案": "圖片功能（上傳、裁切、物件儲存）尚未實作",
-}
+PENDING: dict[str, str] = {}
 
 scenarios(feature("刪除貼文"))
 

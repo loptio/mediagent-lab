@@ -16,3 +16,6 @@ AGENTS.md
 
 # pytest-bdd 載入前改寫過 Example 名稱的 feature（由 tests/bdd/conftest.py 產生）
 tests/bdd/_generated/
+
+# 本機上傳的圖片（MEDIA_DIR 預設值）
+media/

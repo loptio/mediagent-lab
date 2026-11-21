@@ -246,6 +246,19 @@ class MediaFile(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class MediaBlob(Base):
+    """圖片內容（MEDIA_STORAGE_BACKEND=db 時使用）。
+
+    正式環境不另外申請付費的物件儲存，圖片存在資料庫，由後端提供網址。
+    """
+
+    __tablename__ = "media_blob"
+
+    storage_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Post(Base):
     __tablename__ = "post"
     __table_args__ = (
@@ -275,6 +288,7 @@ class Post(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     creator: Mapped[UserAccount] = relationship(foreign_keys=[creator_id])
+    image: Mapped["PostImage | None"] = relationship(uselist=False, viewonly=True)
 
 
 class PostImage(Base):
@@ -289,6 +303,13 @@ class PostImage(Base):
     original_media_id: Mapped[int] = mapped_column(ForeignKey("media_file.id"))
     ig_media_id: Mapped[int] = mapped_column(ForeignKey("media_file.id"))
     created_at: Mapped[datetime] = _created_at()
+
+    original: Mapped[MediaFile] = relationship(foreign_keys=[original_media_id])
+    instagram: Mapped[MediaFile] = relationship(foreign_keys=[ig_media_id])
+
+    @property
+    def cropped(self) -> bool:
+        return self.ig_media_id != self.original_media_id
 
 
 # ---------- 5.9～5.11 目標與發佈紀錄（M4、M5） ----------
