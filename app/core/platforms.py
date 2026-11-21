@@ -103,6 +103,34 @@ class PlatformAdapter(Protocol):
     async def finalize(self, credential: Credential, request_ref: str) -> Published | Failed: ...
 
 
+class WebhookInvalid(Exception):
+    """Webhook 網址格式不對，或平台明確回應這個 Webhook 不存在、不可用。"""
+
+
+class VerificationUnavailable(Exception):
+    """暫時無法向平台驗證（網路或平台暫時性錯誤）；不代表 Webhook 無效（BR-37）。"""
+
+
+class UnavailableAdapter:
+    """還沒有真實 Adapter 的平台：提供內容限制，但發佈一律失敗，不會假裝成功。"""
+
+    def __init__(self, platform: Platform) -> None:
+        self.platform = platform
+        self.capabilities = CAPABILITIES[platform]
+
+    def count_chars(self, text: str) -> int:
+        return len(text)
+
+    async def begin(self, credential: Credential, content: PostContent) -> Failed:
+        return Failed(FailureReason.OTHER, f"{self.platform} adapter is not implemented yet")
+
+    async def check(self, credential: Credential, request_ref: str | None) -> CheckResult:
+        return CheckResult(CheckStatus.UNKNOWN)
+
+    async def finalize(self, credential: Credential, request_ref: str) -> Failed:
+        return Failed(FailureReason.OTHER, f"{self.platform} adapter is not implemented yet")
+
+
 # ---------- 註冊表 ----------
 
 _registry: dict[Platform, PlatformAdapter] = {}
@@ -182,6 +210,10 @@ class MockAdapter:
 
     def count_chars(self, text: str) -> int:
         return len(text)
+
+    async def verify_webhook(self, webhook_url: str) -> dict[str, Any]:
+        """離線開發用：不連線，直接回傳假的識別資料。"""
+        return {"webhook_id": "0", "guild_id": "0", "channel_id": "0"}
 
     async def begin(self, credential: Credential, content: PostContent) -> Started:
         name = credential["account_name"]

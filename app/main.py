@@ -17,6 +17,9 @@ logging.basicConfig(
     level=get_settings().log_level,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+# httpx 會在 INFO 記錄每個請求的完整網址；Discord Webhook 網址等同密碼，不可進 Log（NFR-02）
+for _noisy_logger in ("httpx", "httpcore"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 app = FastAPI(
     title="mediagent API",
@@ -67,6 +70,15 @@ def _register_adapters() -> None:
 
     if get_settings().platform_mode == "mock":
         platforms.register_mock_adapters()
+        return
+
+    from .core.enums import Platform
+    from .m2_platforms.adapters.discord import DiscordAdapter
+
+    platforms.register_adapter(DiscordAdapter())
+    # Threads、Instagram 的真實 Adapter 尚未實作：先提供內容限制，發佈時一律回報失敗
+    for platform in (Platform.THREADS, Platform.INSTAGRAM):
+        platforms.register_adapter(platforms.UnavailableAdapter(platform))
 
 
 _include_routers()

@@ -15,3 +15,11 @@ class PlatformAccountOut(BaseModel):
 
 class PlatformAccountList(BaseModel):
     items: list[PlatformAccountOut]
+
+
+class PlatformAccountCreate(BaseModel):
+    """以 Webhook 連結 Discord。Threads、Instagram 走 OAuth 流程（尚未實作）。"""
+
+    platform: str
+    account_name: str
+    webhook_url: str
