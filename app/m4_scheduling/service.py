@@ -25,7 +25,16 @@ from app.m3_posts import service as posts_service
 from app.m3_posts.schemas import PostOut
 
 from . import repository
-from .schemas import PublishRecordOut, PublishRecordsOut, RecordAccount, TargetOut, TargetsOut
+from .schemas import (
+    HistoryActor,
+    HistoryItem,
+    HistoryOut,
+    PublishRecordOut,
+    PublishRecordsOut,
+    RecordAccount,
+    TargetOut,
+    TargetsOut,
+)
 
 EDITABLE_STATUSES = (PostStatus.DRAFT, PostStatus.SCHEDULED)
 # 台灣沒有日光節約時間，固定 UTC+8
@@ -211,4 +220,25 @@ def get_publish_records(db: Session, user: UserAccount, post_id: int) -> Publish
         post_deleted=deleted,
         post_status=None if deleted else post.status,
         items=items,
+    )
+
+
+def get_history(db: Session, post_id: int) -> HistoryOut:
+    """發佈紀錄的變更歷程，由舊到新；貼文刪除後仍可查詢（FR-17、BR-35）。"""
+    if repository.get_post_including_deleted(db, post_id) is None:
+        raise not_found("找不到貼文")
+    return HistoryOut(
+        post_id=post_id,
+        items=[
+            HistoryItem(
+                publish_record_id=history.publish_record_id,
+                from_status=history.from_status,
+                to_status=history.to_status,
+                changed_at=history.changed_at,
+                actor_type=history.actor_type,
+                actor=HistoryActor(id=actor.id, name=actor.name) if actor else None,
+                reason=history.reason,
+            )
+            for history, actor in repository.history_of(db, post_id)
+        ],
     )

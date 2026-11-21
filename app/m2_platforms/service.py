@@ -1,6 +1,7 @@
-"""M2 平台帳號與串接：查看平台帳號、以 Webhook 連結 Discord、以平台授權（OAuth）連結 Threads。
+"""M2 平台帳號與串接：查看、以 Webhook 連結與重新連結 Discord、以平台授權（OAuth）連結 Threads、
+移除平台帳號。
 
-Instagram 的 OAuth 連結、重新連結、移除平台帳號尚未實作。
+Instagram 的串接、Threads 與 Instagram 的重新連結尚未實作。
 """
 
 import logging
@@ -14,6 +15,7 @@ from app.core.config import get_settings
 from app.core.crypto import encrypt_credential
 from app.core.enums import (
     AuditAction,
+    AuthStatus,
     Platform,
     PlatformAuthEventType,
     PlatformAuthFailureReason,
@@ -21,7 +23,7 @@ from app.core.enums import (
     TargetType,
     UserStatus,
 )
-from app.core.errors import DomainError
+from app.core.errors import DomainError, not_found
 from app.core.models import PlatformAccount, UserAccount
 from app.core.platforms import (
     OAuthAccount,
@@ -31,6 +33,7 @@ from app.core.platforms import (
     effective_auth_status,
     get_adapter,
 )
+from app.m4_scheduling import lifecycle
 
 from . import oauth_state, repository
 from .adapters.discord import is_webhook_url
@@ -132,6 +135,77 @@ def link_webhook_account(
     )
     db.commit()
     return to_out(account)
+
+
+def relink_webhook(db: Session, admin: UserAccount, account_id: int, webhook_url: str) -> PlatformAccountOut:
+    """Discord 重新連結：換成新的 Webhook（FR-21、BR-37）。驗證失敗時保留原有資料並記錄平台授權事件。"""
+    account = repository.get_active(db, account_id)
+    if account is None:
+        raise not_found("找不到平台帳號")
+    if account.platform != Platform.DISCORD:
+        raise DomainError(400, "PLATFORM_REQUIRES_OAUTH", "Threads 與 Instagram 需透過平台授權流程重新連結")
+
+    def relink_failed(reason: PlatformAuthFailureReason) -> None:
+        repository.add_auth_event(
+            db,
+            event_type=PlatformAuthEventType.RELINK_FAILED,
+            platform=account.platform,
+            account_name=account.account_name,
+            failure_reason=reason,
+            actor_id=admin.id,
+            platform_account_id=account.id,
+        )
+        db.commit()
+
+    if not is_webhook_url(webhook_url):
+        relink_failed(PlatformAuthFailureReason.WEBHOOK_INVALID)
+        raise DomainError(422, "WEBHOOK_INVALID", "Webhook 網址無效，請確認後重新貼上")
+    try:
+        webhook_info = from_thread.run(get_adapter(Platform.DISCORD).verify_webhook, webhook_url)
+    except WebhookInvalid:
+        relink_failed(PlatformAuthFailureReason.WEBHOOK_INVALID)
+        raise DomainError(422, "WEBHOOK_INVALID", "Webhook 網址無效，請確認後重新貼上") from None
+    except VerificationUnavailable:
+        relink_failed(PlatformAuthFailureReason.VERIFICATION_UNAVAILABLE)
+        raise DomainError(503, "VERIFICATION_UNAVAILABLE", "暫時無法向 Discord 驗證，請稍後再試") from None
+
+    account = repository.get_active(db, account_id, for_update=True)
+    if account is None:  # 驗證期間被移除
+        raise not_found("找不到平台帳號")
+    token, key_version = encrypt_credential(
+        {"account_name": account.account_name, "webhook_url": webhook_url, **webhook_info}
+    )
+    account.credential_encrypted = token
+    account.credential_key_version = key_version
+    account.auth_status = AuthStatus.VALID
+    # 連結者維持原本的人；這次重新連結的管理員記在稽核紀錄
+    audit.write(
+        db,
+        action=AuditAction.PLATFORM_RELINK,
+        actor=admin,
+        target_type=TargetType.PLATFORM_ACCOUNT,
+        target_id=account.id,
+    )
+    db.commit()
+    return to_out(account)
+
+
+def remove_account(db: Session, admin: UserAccount, account_id: int) -> None:
+    """移除平台帳號（FR-08、BR-23）：標記為已移除、資料與發佈紀錄保留，並處理受影響的貼文。"""
+    account = repository.get_active(db, account_id, for_update=True)
+    if account is None:
+        raise not_found("找不到平台帳號")
+    account.removed = True
+    account.removed_at = clock.now()
+    lifecycle.on_platform_account_removed(db, account.id, admin)
+    audit.write(
+        db,
+        action=AuditAction.PLATFORM_REMOVE,
+        actor=admin,
+        target_type=TargetType.PLATFORM_ACCOUNT,
+        target_id=account.id,
+    )
+    db.commit()
 
 
 # ---------- 平台授權（OAuth）連結：Threads ----------

@@ -70,3 +70,13 @@ def add_auth_event(
         )
     )
     db.flush()
+
+
+def get_active(db: Session, account_id: int, *, for_update: bool = False) -> PlatformAccount | None:
+    """未移除的平台帳號；已移除的視為不存在。"""
+    stmt = select(PlatformAccount).where(
+        PlatformAccount.id == account_id, PlatformAccount.removed.is_(False)
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    return db.scalar(stmt)

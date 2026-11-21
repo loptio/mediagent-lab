@@ -6,7 +6,7 @@ from app.core.db import get_db
 from app.core.models import UserAccount
 
 from . import service
-from .schemas import PostCreate, PostOut, PostPage, PostUpdate
+from .schemas import PostCreate, PostOut, PostPage, PostUpdate, PreviewOut
 
 router = APIRouter(prefix="/posts", tags=["貼文"])
 
@@ -60,3 +60,23 @@ def delete_post(
     """刪除後不再出現在列表，但仍可用原 ID 查看發佈結果；已排程的排程一併取消。"""
     service.delete_post(db, user, post_id)
     return Response(status_code=204)
+
+
+@router.post("/{post_id}/copies", response_model=PostOut, status_code=201, summary="複製為新草稿")
+def copy_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user),
+):
+    """任何狀態的貼文都可以複製；新草稿沒有目標平台帳號，需要重新選擇。"""
+    return service.copy_post(db, user, post_id)
+
+
+@router.get("/{post_id}/preview", response_model=PreviewOut, summary="預覽貼文")
+def preview(
+    post_id: int,
+    db: Session = Depends(get_db),
+    _: UserAccount = Depends(get_current_user),
+):
+    """各目標平台的文字、字數與上限；超過上限或授權失效會出現在 warnings。"""
+    return service.preview(db, post_id)
