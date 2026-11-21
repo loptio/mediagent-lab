@@ -25,6 +25,7 @@ def check(post: Post, accounts: list[PlatformAccount], now: datetime) -> None:
         )
 
     require_image_for_instagram(post, accounts)
+    require_public_image_url(post, accounts)
 
     invalid = [
         a.account_name for a in accounts if effective_auth_status(a, now) == AuthStatus.INVALID
@@ -44,6 +45,27 @@ def require_image_for_instagram(post: Post, accounts: list[PlatformAccount]) -> 
     """BR-05：目標含 Instagram 時，貼文必須附加圖片。"""
     if post.image is None and any(account.platform == Platform.INSTAGRAM for account in accounts):
         raise DomainError(422, "IMAGE_REQUIRED_FOR_INSTAGRAM", "選擇 Instagram 時，貼文必須附加一張圖片")
+
+
+# 由平台主動下載圖片的平台：圖片網址必須是它連得到的公開 https 網址（Discord 以附件上傳，不需要）
+DOWNLOADS_IMAGES = (Platform.THREADS, Platform.INSTAGRAM)
+
+
+def require_public_image_url(post: Post, accounts: list[PlatformAccount]) -> None:
+    """有圖片且目標含 Threads 或 Instagram 時，圖片網址必須是公開 https，不要等到發文那一刻才失敗。"""
+    if post.image is None:
+        return
+    for account in accounts:
+        if account.platform not in DOWNLOADS_IMAGES:
+            continue
+        media = post.image.instagram if account.platform == Platform.INSTAGRAM else post.image.original
+        if not media.public_url.startswith("https://"):
+            raise DomainError(
+                422,
+                "IMAGE_URL_NOT_PUBLIC",
+                f"{account.platform} 需要從公開網址下載圖片；請先設定 MEDIA_BASE_URL 並重新附加圖片",
+                {"platform": str(account.platform)},
+            )
 
 
 def check_text(post: Post, accounts: list[PlatformAccount]) -> None:

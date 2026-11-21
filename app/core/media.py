@@ -27,7 +27,7 @@ class LocalMediaStorage:
 
     def path(self, key: str) -> Path | None:
         """只接受系統產生的 key，避免路徑穿越。"""
-        if not KEY_PATTERN.match(key):
+        if not KEY_PATTERN.fullmatch(key):
             return None
         return self.directory / key
 

@@ -55,3 +55,71 @@ def test_crop_center_keeps_the_middle():
     assert cropped.format == "JPEG"
     red, green, blue = cropped.getpixel((540, 5))
     assert red > 200 and blue < 60  # 上緣已經是紅色，代表裁掉的是上下各 285 像素
+
+
+def with_orientation(width, height, orientation=6) -> bytes:
+    """手機直拍：像素是橫的，EXIF 記錄顯示時要轉 90 度。"""
+    image = Image.new("RGB", (width, height), (10, 10, 10))
+    exif = image.getexif()
+    exif[0x0112] = orientation
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", exif=exif)
+    return buffer.getvalue()
+
+
+def test_exif_orientation_is_applied_to_size_and_crop():
+    data = with_orientation(4000, 1500)  # 顯示為 1500×4000 的直式照片
+
+    assert images.inspect(data) == (1500, 4000)
+    assert images.instagram_size(1500, 4000) == (1500, 1875)
+    cropped = Image.open(io.BytesIO(images.crop_center(data, 1500, 1875)))
+    assert cropped.size == (1500, 1875)
+
+
+def with_header_size(data: bytes, width: int, height: int) -> bytes:
+    """把 JPEG 標頭（SOF0）裡的寬高改大：模擬像素數極大、檔案卻很小的圖片。"""
+    index = data.index(b"\xff\xc0")
+    patched = bytearray(data)
+    patched[index + 5 : index + 7] = height.to_bytes(2, "big")
+    patched[index + 7 : index + 9] = width.to_bytes(2, "big")
+    return bytes(patched)
+
+
+@pytest.mark.parametrize("size", [(20000, 10000), (9000, 6000)])
+def test_too_many_pixels_is_rejected_before_decoding(size):
+    with pytest.raises(DomainError) as error:
+        images.inspect(with_header_size(jpeg(100, 100), *size))
+    assert (error.value.status_code, error.value.code) == (422, "IMAGE_DIMENSION_INVALID")
+
+
+def test_truncated_jpeg_is_rejected():
+    data = jpeg(800, 600)
+
+    with pytest.raises(DomainError) as error:
+        images.inspect(data[: len(data) // 2])
+    assert error.value.code == "IMAGE_FORMAT_INVALID"
+
+
+def test_camera_jpeg_with_multi_picture_data_is_accepted():
+    first, second = Image.new("RGB", (640, 480)), Image.new("RGB", (320, 240))
+    buffer = io.BytesIO()
+    first.save(buffer, format="MPO", save_all=True, append_images=[second])
+
+    assert images.inspect(buffer.getvalue()) == (640, 480)
+
+
+def test_instagram_version_stays_within_the_size_limit(monkeypatch):
+    """重新壓縮的裁切版本超過上限時，逐步降低品質直到符合（不讓資料庫限制變成 500）。"""
+    import os
+
+    noisy = Image.frombytes("RGB", (600, 1200), os.urandom(600 * 1200 * 3))
+    buffer = io.BytesIO()
+    noisy.save(buffer, format="JPEG", quality=95)
+    best_quality = len(images.crop_center(buffer.getvalue(), 600, 750))
+    limit = int(best_quality * 0.7)
+    monkeypatch.setattr(images, "MAX_OUTPUT_BYTES", limit)
+
+    cropped = images.crop_center(buffer.getvalue(), 600, 750)
+
+    assert len(cropped) <= limit
+    assert Image.open(io.BytesIO(cropped)).size == (600, 750)

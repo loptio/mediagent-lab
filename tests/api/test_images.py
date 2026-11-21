@@ -17,7 +17,13 @@ MAX_BYTES = 8_000_000
 @pytest.fixture(autouse=True)
 def media_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "media_dir", str(tmp_path))
+    monkeypatch.setattr(get_settings(), "media_base_url", "https://media.test/media")
     return tmp_path
+
+
+def served(client, url):
+    """圖片網址的最後一段是 storage key，由後端的 /media/{key} 提供。"""
+    return client.get(f"/media/{url.rsplit('/', 1)[1]}")
 
 
 def jpeg(width=1080, height=1920, fmt="JPEG", size=None) -> bytes:
@@ -55,8 +61,8 @@ def test_upload_creates_original_and_instagram_version(client, db, media_dir):
     listed = client.get(f"{API}/posts", headers=headers).json()["items"]
     assert [item["has_image"] for item in listed] == [True]
     assert len(list(media_dir.rglob("*.jpg"))) == 2
-    served = client.get(image["ig_public_url"])
-    assert served.status_code == 200 and Image.open(io.BytesIO(served.content)).size == (1080, 1350)
+    response = served(client, image["ig_public_url"])
+    assert response.status_code == 200 and Image.open(io.BytesIO(response.content)).size == (1080, 1350)
 
 
 def test_image_within_instagram_ratio_is_not_cropped(client, db, media_dir):
@@ -233,3 +239,25 @@ def test_preview_shows_the_version_each_platform_gets(client, db):
     }
     assert by_platform["instagram"]["warnings"] == ["IMAGE_CROPPED"]
     assert by_platform["threads"]["image"]["url"] == image["public_url"]
+
+
+def test_platforms_that_download_images_need_a_public_https_url(client, db, monkeypatch):
+    """Threads、Instagram 由平台下載圖片：圖片網址不是公開 https 時，
+    排程或發佈當下就拒絕，不等到發文那一刻才失敗。"""
+    monkeypatch.setattr(get_settings(), "media_base_url", "/media")  # 本機預設值：平台連不到
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+    upload(client, headers, post_id)
+    client.put(
+        f"{API}/posts/{post_id}/targets",
+        json={"platform_account_ids": [accounts["threads"].id]},
+        headers=headers,
+    )
+
+    refused = publish(client, headers, post_id)
+
+    assert (refused.status_code, refused.json()["code"]) == (422, "IMAGE_URL_NOT_PUBLIC")
+    discord_only = draft(client, headers, [accounts["discord"].id])
+    upload(client, headers, discord_only)
+    assert publish(client, headers, discord_only).status_code == 202  # Discord 以附件上傳，不需要公開網址

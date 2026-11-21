@@ -154,6 +154,7 @@ class World:
 def world(client, db, mock_platforms, monkeypatch, tmp_path):
     settings = get_settings()
     monkeypatch.setattr(settings, "media_dir", str(tmp_path / "media"))
+    monkeypatch.setattr(settings, "media_base_url", "https://media.test/media")
     monkeypatch.setattr(settings, "dev_mode", True)
     monkeypatch.setattr(settings, "cron_secret", "bdd-cron-secret")
     # 「發佈逾時」以 Adapter 拋出逾時表示，不需要真的等 30 秒
