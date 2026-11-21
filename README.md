@@ -117,8 +117,10 @@ pnpm gen:api
 
 `spec/features/` 的 452 個驗收例子由 `tests/bdd/` 以 pytest-bdd 執行（architecture §13）：目前 447 個通過、5 個標為待確認。原因寫在各 `tests/bdd/test_<功能>.py` 的 `PENDING`：
 
-- 4 個是規格例子本身互相衝突，待小組確認（排程發佈 1、重新連結 1、修改貼文 2）。
-- 1 個是背景重送進行到一半的中間狀態，需要非同步的測試才能觀察。
+- 4 個是規格例子本身互相衝突（標為預期失敗；規格修好後測試會提醒拿掉標記），細節與建議見 [docs/spec-issues.md](docs/spec-issues.md)。
+- 1 個是背景重送進行到一半的中間狀態，需要非同步的測試才能觀察（略過）。
+
+原型在規格沒有寫到的地方先做的決定，也列在 [docs/spec-issues.md](docs/spec-issues.md)，請小組確認。
 
 ```bash
 python -m pip install -r requirements-dev.txt

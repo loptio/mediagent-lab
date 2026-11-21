@@ -1,6 +1,7 @@
 """M3 貼文編輯：建立、取得、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片。"""
 
 import hashlib
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +26,8 @@ from .schemas import (
     TargetOut,
     UserRef,
 )
+
+logger = logging.getLogger("mediagent.posts")
 
 PAGE_SIZES = (20, 50, 100)
 MAX_IMAGE_BYTES = 8_000_000  # BR-04
@@ -301,6 +304,8 @@ def _detach_image(db: Session, post: Post) -> list[str]:
     if image is None:
         return []
     media_ids = {image.original_media_id, image.ig_media_id}
+    # 先鎖定圖片檔案的資料列：原貼文與複本同時移除圖片時，第二個會等第一個提交後再判斷還有沒有人使用
+    db.scalars(select(MediaFile).where(MediaFile.id.in_(media_ids)).order_by(MediaFile.id).with_for_update()).all()
     db.delete(image)
     db.flush()
     orphaned = []
@@ -319,6 +324,10 @@ def _detach_image(db: Session, post: Post) -> list[str]:
 
 
 def _delete_files(keys: list[str]) -> None:
+    """資料庫已提交後才刪檔；刪不掉只記錄下來（留下沒人用的檔案），不讓已完成的操作回報失敗。"""
     storage = get_storage()
     for key in keys:
-        storage.delete(key)
+        try:
+            storage.delete(key)
+        except Exception as exc:
+            logger.warning("could not delete media %s: %s", key, type(exc).__name__)
