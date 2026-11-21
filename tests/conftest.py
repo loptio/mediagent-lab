@@ -27,8 +27,9 @@ def test_database():
         conn.execute(text(f'CREATE DATABASE "{TEST_DB}"'))
     admin.dispose()
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     command.upgrade(Config("alembic.ini"), "head")
 
@@ -69,3 +70,11 @@ def client(clean_tables):
 
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def mock_platforms():
+    """每個測試都使用全新的 MockAdapter，不會連到任何真實平台。"""
+    from app.core import platforms
+
+    return platforms.register_mock_adapters()
