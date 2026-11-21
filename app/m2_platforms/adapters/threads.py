@@ -234,6 +234,20 @@ class ThreadsAdapter:
         return Failed(reason, scrubbed)
 
     async def begin(self, credential: Credential, content: PostContent) -> Started | Failed:
+        data = {"media_type": "TEXT", "text": content.text, "access_token": credential["access_token"]}
+        if content.image is not None:
+            # Threads 由平台主動下載圖片，必須是它連得到的公開 https 網址
+            if not content.image.url.startswith("https://"):
+                return Failed(
+                    FailureReason.OTHER,
+                    "image needs a public https URL that Threads can download; set MEDIA_BASE_URL",
+                )
+            data = {
+                "media_type": "IMAGE",
+                "image_url": content.image.url,
+                "text": content.text,
+                "access_token": credential["access_token"],
+            }
         try:
             async with self._client() as client:
                 response = await self._send(
@@ -241,11 +255,7 @@ class ThreadsAdapter:
                     "POST",
                     f"{API_URL}/{credential['user_id']}/threads",
                     retry_server_errors=True,
-                    data={
-                        "media_type": "TEXT",
-                        "text": content.text,
-                        "access_token": credential["access_token"],
-                    },
+                    data=data,
                 )
         except httpx.HTTPError:
             # 還沒發佈的 container 別人看不到，建立失敗或結果不明都不會造成重複貼文

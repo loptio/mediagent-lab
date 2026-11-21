@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.core import models
 from app.core.enums import Platform, Role
-from tests.factories import DEFAULT_PASSWORD, make_account, make_user
+from tests.factories import DEFAULT_PASSWORD, make_account, make_image, make_user
 
 API = "/api/v1"
 
@@ -31,10 +31,21 @@ def seed_club(db):
     return users, accounts
 
 
-def create_post_with_targets(client, headers, account_ids, content="本週三 19:00 社課"):
+def create_post_with_targets(client, headers, account_ids, content="本週三 19:00 社課", image=None):
+    """image=None：目標含 Instagram 時自動附加一張圖片（BR-05）；False：不附加。"""
     created = client.post(f"{API}/posts", json={"content": content}, headers=headers)
     assert created.status_code == 201, created.text
     post_id = created.json()["id"]
+    if image is None and account_ids:
+        from app.core.db import SessionLocal
+
+        with SessionLocal() as db:
+            platforms = set(
+                db.scalars(select(models.PlatformAccount.platform).where(models.PlatformAccount.id.in_(account_ids)))
+            )
+            if Platform.INSTAGRAM in platforms:
+                make_image(db, post_id)
+                db.commit()
     targets = client.put(
         f"{API}/posts/{post_id}/targets",
         json={"platform_account_ids": account_ids},

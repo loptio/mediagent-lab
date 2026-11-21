@@ -92,12 +92,17 @@ def test_exchange_code_returns_long_lived_account():
     exchange, long_lived, profile = requests
     assert (exchange.method, str(exchange.url)) == ("POST", "https://graph.threads.com/oauth/access_token")
     assert form(exchange) == {
-        "client_id": "9990001", "client_secret": SECRET, "grant_type": "authorization_code",
-        "redirect_uri": REDIRECT, "code": "the-code",
+        "client_id": "9990001",
+        "client_secret": SECRET,
+        "grant_type": "authorization_code",
+        "redirect_uri": REDIRECT,
+        "code": "the-code",
     }
     assert long_lived.url.path == "/access_token"
     assert dict(long_lived.url.params) == {
-        "grant_type": "th_exchange_token", "client_secret": SECRET, "access_token": "short",
+        "grant_type": "th_exchange_token",
+        "client_secret": SECRET,
+        "access_token": "short",
     }
     assert profile.url.path == "/v1.0/me"
     assert profile.url.params["access_token"] == TOKEN
@@ -110,8 +115,11 @@ def test_exchange_error_is_oauth_failed_without_leaking_secret():
     def handler(request, n):
         return httpx.Response(
             400,
-            json={"error_type": "OAuthException", "code": 400,
-                  "error_message": f"Matching code was not found or was already used ({SECRET})"},
+            json={
+                "error_type": "OAuthException",
+                "code": 400,
+                "error_message": f"Matching code was not found or was already used ({SECRET})",
+            },
         )
 
     with pytest.raises(OAuthFailed) as error:
@@ -131,7 +139,8 @@ def test_begin_creates_text_container():
 
     assert result == Started("container-1")
     assert (requests[0].method, str(requests[0].url)) == (
-        "POST", "https://graph.threads.com/v1.0/17841/threads",
+        "POST",
+        "https://graph.threads.com/v1.0/17841/threads",
     )
     assert form(requests[0]) == {"media_type": "TEXT", "text": "本週三 19:00 社課", "access_token": TOKEN}
 
@@ -169,7 +178,9 @@ def test_finalize_publishes_and_returns_permalink():
     def handler(request, n):
         if n == 1:
             return httpx.Response(200, json={"id": "media-9"})
-        return httpx.Response(200, json={"id": "media-9", "permalink": "https://www.threads.com/@ntu_guitar/post/abc"})
+        return httpx.Response(
+            200, json={"id": "media-9", "permalink": "https://www.threads.com/@ntu_guitar/post/abc"}
+        )
 
     result, requests = run(handler, lambda a: a.finalize(CREDENTIAL, "container-1"))
 
@@ -264,3 +275,37 @@ def test_count_chars_counts_emoji_as_utf8_bytes():
     assert adapter.count_chars("社課公告 abc") == 8
     assert adapter.count_chars("社課🎸") == 2 + 4
     assert adapter.count_chars("👍🏽") == 8
+
+
+def image_version(url):
+    from app.core.platforms import ImageVersion
+
+    return ImageVersion(url=url, storage_key="k.jpg", sha256="s", width=1080, height=1350, variant="original")
+
+
+def test_begin_creates_image_container_from_the_public_url():
+    result, requests = run(
+        lambda request, n: httpx.Response(200, json={"id": "container-2"}),
+        lambda a: a.begin(
+            CREDENTIAL, PostContent(text="社課公告", image=image_version("https://media.club.tw/poster.jpg"))
+        ),
+    )
+
+    assert result == Started("container-2")
+    assert form(requests[0]) == {
+        "media_type": "IMAGE",
+        "image_url": "https://media.club.tw/poster.jpg",
+        "text": "社課公告",
+        "access_token": TOKEN,
+    }
+
+
+def test_image_without_a_public_https_url_is_not_sent():
+    """Threads 由平台主動下載圖片；本機的 /media 網址它連不到，不送出並說明原因。"""
+    result, requests = run(
+        lambda request, n: httpx.Response(200, json={"id": "container-3"}),
+        lambda a: a.begin(CREDENTIAL, PostContent(text="社課公告", image=image_version("/media/poster.jpg"))),
+    )
+
+    assert requests == []
+    assert result.reason == FailureReason.OTHER and "MEDIA_BASE_URL" in result.message

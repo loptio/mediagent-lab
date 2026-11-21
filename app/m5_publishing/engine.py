@@ -27,6 +27,7 @@ from app.core.enums import (
     AuditAction,
     FailureReason,
     HistoryReason,
+    Platform,
     PostStatus,
     RecordStatus,
     SkipReason,
@@ -39,6 +40,7 @@ from app.core.platforms import (
     CheckStatus,
     Credential,
     Failed,
+    ImageVersion,
     PlatformAdapter,
     PostContent,
     Published,
@@ -283,8 +285,25 @@ def job_for(record, post) -> Job:
         account_id=account.id,
         platform=account.platform,
         credential_encrypted=bytes(account.credential_encrypted),
-        content=PostContent(text=post.content),
+        content=PostContent(text=post.content, image=image_for(post, account.platform)),
         request_ref=record.platform_request_ref,
+    )
+
+
+def image_for(post, platform: str) -> ImageVersion | None:
+    """Instagram 送裁切後的版本，Threads 與 Discord 送原圖（BR-06）。"""
+    if post.image is None:
+        return None
+    on_instagram = platform == Platform.INSTAGRAM
+    media = post.image.instagram if on_instagram else post.image.original
+    return ImageVersion(
+        url=media.public_url,
+        storage_key=media.storage_key,
+        sha256=media.sha256,
+        width=media.width,
+        height=media.height,
+        variant="instagram" if on_instagram else "original",
+        format=media.format,
     )
 
 
@@ -297,7 +316,12 @@ def _write_back(job: Job, outcome: Outcome, reason: HistoryReason) -> None:
     succeeded = isinstance(outcome, Published)
     with session_scope() as db:
         publish_records.set_result(
-            db, job.record_id, outcome, reason=reason, content_summary=job.content.text
+            db,
+            job.record_id,
+            outcome,
+            reason=reason,
+            content_summary=job.content.text,
+            image=job.content.image,
         )
         if not succeeded and outcome.reason == FailureReason.AUTH_INVALID:
             mark_auth_invalid(db, job.account_id)  # BR-09

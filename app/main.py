@@ -79,6 +79,19 @@ async def request_id_middleware(request: Request, call_next):
     return response
 
 
+@app.get("/media/{key}", include_in_schema=False)
+def media(key: str):
+    """本機儲存的圖片（正式環境改由物件儲存的公開網址提供）。"""
+    from fastapi.responses import FileResponse
+
+    from .core.media import get_storage
+
+    path = get_storage().path(key)
+    if path is None or not path.is_file():
+        return JSONResponse(status_code=404, content={"code": "NOT_FOUND", "message": "找不到圖片"})
+    return FileResponse(path, media_type="image/jpeg")
+
+
 @app.get("/health", tags=["維運"])
 def health() -> JSONResponse:
     try:

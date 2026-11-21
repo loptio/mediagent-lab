@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from . import clock
 from .enums import ActorType, HistoryReason, RecordStatus
 from .models import PublishRecord, PublishRecordHistory, UserAccount
-from .platforms import Failed, Published
+from .platforms import Failed, ImageVersion, Published
 
 
 def _record_history(
@@ -92,8 +92,11 @@ def set_result(
     *,
     reason: HistoryReason,
     content_summary: str | None = None,
+    image: ImageVersion | None = None,
 ) -> bool:
     """寫回發佈結果。只有紀錄仍是待發佈時才寫入，否則回傳 False 且不做任何變更。
+
+    成功時保存送出圖片的識別資訊（雜湊值、格式、尺寸、版本），不保存圖片本身。
 
     背景發佈期間紀錄可能已被取消或被其他執行者處理；這個檢查避免覆蓋別人的結果。
     """
@@ -110,6 +113,12 @@ def set_result(
         record.platform_post_url = outcome.post_url
         record.failure_reason = None
         record.platform_error_message = None
+        if image is not None:
+            record.image_sha256 = image.sha256
+            record.image_format = image.format
+            record.image_width = image.width
+            record.image_height = image.height
+            record.image_variant = image.variant
     else:
         record.status = RecordStatus.FAILED
         record.failure_reason = outcome.reason

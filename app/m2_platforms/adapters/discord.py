@@ -7,6 +7,7 @@
 """
 
 import asyncio
+import json
 import re
 from typing import Any
 
@@ -14,6 +15,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.enums import FailureReason, Platform
+from app.core.media import get_storage
 from app.core.platforms import (
     CAPABILITIES,
     CheckResult,
@@ -111,12 +113,21 @@ class DiscordAdapter:
         # 發送前再檢查一次：保存的網址若不是官方 Webhook 網址，就不送出任何請求
         if not is_webhook_url(webhook_url):
             return Failed(FailureReason.AUTH_INVALID, "stored webhook URL is not a Discord webhook URL")
+        request = {"json": {"content": content.text}}
+        if content.image is not None:
+            # 圖片以附件上傳：不需要公開網址，本機也能發
+            try:
+                data = get_storage().read(content.image.storage_key)
+            except OSError:
+                return Failed(FailureReason.OTHER, "image file is missing")
+            request = {
+                "data": {"payload_json": json.dumps({"content": content.text}, ensure_ascii=False)},
+                "files": {"files[0]": ("image.jpg", data, "image/jpeg")},
+            }
         try:
             async with self._client() as client:
                 for _ in range(MAX_RATE_LIMIT_RETRIES + 1):
-                    response = await client.post(
-                        webhook_url, params={"wait": "true"}, json={"content": content.text}
-                    )
+                    response = await client.post(webhook_url, params={"wait": "true"}, **request)
                     if response.status_code != 429:
                         break
                     await asyncio.sleep(_retry_after(response))

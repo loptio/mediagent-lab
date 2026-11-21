@@ -43,6 +43,8 @@ services:
       - ./app:/srv/app
       - ./alembic:/srv/alembic
       - ./seeds:/srv/seeds
+      # 上傳的圖片：容器重建後仍保留
+      - media:/srv/media
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -63,4 +65,5 @@ services:
       - api
 
 volumes:
+  media:
   db-data:

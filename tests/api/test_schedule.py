@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.core import clock, models
 from app.core.enums import AuditAction, PostStatus
 from tests.api.helpers import API, create_post_with_targets, login, seed_club
+from tests.factories import make_image
 
 # 現在是台灣時間 2026-10-06 11:00（UTC 03:00）
 NOW = datetime(2026, 10, 6, 3, 0, tzinfo=UTC)
@@ -197,6 +198,8 @@ def test_reschedule_after_cancel_reuses_records(client, db):
     schedule(client, headers, post_id)
     cancel(client, headers, post_id)
     before = records(db, post_id)
+    make_image(db, post_id)  # Instagram 需要圖片（BR-05）
+    db.commit()
     set_targets(client, headers, post_id, [accounts["discord"].id, accounts["instagram"].id])
 
     response = schedule(client, headers, post_id, "2026-10-07T12:00:00+08:00")
@@ -220,6 +223,8 @@ def test_changing_targets_of_scheduled_post_syncs_records(client, db):
     schedule(client, headers, post_id)
     before = records(db, post_id)
     written = len(history(db, post_id))
+    make_image(db, post_id)  # Instagram 需要圖片（BR-05）
+    db.commit()
 
     response = set_targets(client, headers, post_id, [accounts["discord"].id, accounts["instagram"].id])
 

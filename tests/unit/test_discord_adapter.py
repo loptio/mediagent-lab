@@ -25,9 +25,7 @@ def run_begin(handler, text="本週三 19:00 社課"):
 
 
 def test_begin_returns_message_url():
-    result, calls = run_begin(
-        lambda request, n: httpx.Response(200, json={"id": "555", "channel_id": "222"})
-    )
+    result, calls = run_begin(lambda request, n: httpx.Response(200, json={"id": "555", "channel_id": "222"}))
 
     assert result == Published(post_id="555", post_url="https://discord.com/channels/111/222/555")
     request = calls[0]
@@ -47,9 +45,7 @@ def test_unknown_webhook_is_auth_invalid():
 
 
 def test_error_message_never_contains_the_webhook_token():
-    result, _ = run_begin(
-        lambda request, n: httpx.Response(400, json={"message": f"bad request to {URL}"})
-    )
+    result, _ = run_begin(lambda request, n: httpx.Response(400, json={"message": f"bad request to {URL}"}))
 
     assert result.reason == FailureReason.CONTENT_REJECTED
     assert TOKEN not in result.message
@@ -130,3 +126,44 @@ def test_begin_refuses_a_stored_url_that_is_not_a_discord_webhook():
 
     assert isinstance(result, Failed) and result.reason == FailureReason.AUTH_INVALID
     assert calls == []
+
+
+def test_image_is_uploaded_as_an_attachment(tmp_path, monkeypatch):
+    """Discord 以附件上傳圖片：不需要公開網址，本機也能發。"""
+    from app.core.config import get_settings
+    from app.core.platforms import ImageVersion
+
+    monkeypatch.setattr(get_settings(), "media_dir", str(tmp_path))
+    (tmp_path / ("a" * 32 + ".jpg")).write_bytes(b"\xff\xd8jpeg-bytes\xff\xd9")
+    image = ImageVersion(
+        url="/media/x.jpg", storage_key="a" * 32 + ".jpg", sha256="s", width=10, height=10, variant="original"
+    )
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"id": "555", "channel_id": "222"})
+
+    adapter = DiscordAdapter(transport=httpx.MockTransport(handler))
+    result = asyncio.run(adapter.begin(CREDENTIAL, PostContent(text="社課公告", image=image)))
+
+    assert isinstance(result, Published)
+    body = calls[0].content
+    assert calls[0].headers["content-type"].startswith("multipart/form-data")
+    assert b"jpeg-bytes" in body and "社課公告".encode() in body
+
+
+def test_missing_image_file_fails_without_sending(tmp_path, monkeypatch):
+    from app.core.config import get_settings
+    from app.core.platforms import ImageVersion
+
+    monkeypatch.setattr(get_settings(), "media_dir", str(tmp_path))
+    image = ImageVersion(
+        url="/media/x.jpg", storage_key="b" * 32 + ".jpg", sha256="s", width=10, height=10, variant="original"
+    )
+    calls = []
+    adapter = DiscordAdapter(transport=httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(200)))
+
+    result = asyncio.run(adapter.begin(CREDENTIAL, PostContent(text="x", image=image)))
+
+    assert (result.reason, calls) == (FailureReason.OTHER, [])
