@@ -279,3 +279,105 @@ def test_images_can_live_in_the_database(client, db, monkeypatch, media_dir):
     client.delete(f"{API}/posts/{post_id}/image", headers=headers)
     db.expire_all()
     assert db.scalars(select(models.MediaBlob)).all() == []
+
+
+def test_post_list_does_not_query_once_per_post(client, db):
+    from sqlalchemy import event
+
+    from app.core.db import engine
+    from tests.factories import make_image
+
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    for _ in range(20):
+        make_image(db, draft(client, headers))
+    db.commit()
+    statements = []
+    listener = lambda *args: statements.append(args[2])  # noqa: E731
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        response = client.get(f"{API}/posts", headers=headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+
+    assert response.status_code == 200 and all(item["has_image"] for item in response.json()["items"])
+    assert len(statements) <= 10, f"{len(statements)} 次查詢"
+
+
+def test_failed_record_still_shows_which_image_was_sent(client, db, mock_platforms):
+    from app.core.enums import FailureReason
+
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers, [accounts["discord"].id])
+    upload(client, headers, post_id)
+    mock_platforms[Platform.DISCORD].fail("公告", FailureReason.PLATFORM_UNAVAILABLE)
+
+    publish(client, headers, post_id)
+
+    db.expire_all()
+    record = db.scalar(select(models.PublishRecord).where(models.PublishRecord.post_id == post_id))
+    assert (record.status, record.image_variant) == ("FAILED", "original")
+    assert record.image_sha256
+
+
+def test_file_cleanup_failure_does_not_undo_a_committed_removal(client, db, monkeypatch):
+    from app.core import media
+
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+    upload(client, headers, post_id)
+
+    def broken_delete(self, key):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(media.LocalMediaStorage, "delete", broken_delete)
+
+    assert client.delete(f"{API}/posts/{post_id}/image", headers=headers).status_code == 204
+    assert client.get(f"{API}/posts/{post_id}", headers=headers).json()["image"] is None
+
+
+def test_removing_a_shared_image_from_both_posts_at_once_deletes_it(db, media_dir):
+    """原貼文與複本同時移除圖片：兩邊都看到對方還在用時，不可以留下沒人用的圖片。"""
+    import threading
+
+    from app.core.db import SessionLocal
+    from app.m3_posts import service
+    from tests.factories import make_image
+
+    users, _ = seed_club(db)
+    first = models.Post(content="原貼文", creator_id=users["publisher"].id)
+    second = models.Post(content="複本", creator_id=users["publisher"].id)
+    db.add_all([first, second])
+    db.flush()
+    image = make_image(db, first.id)
+    db.add(
+        models.PostImage(
+            post_id=second.id, original_media_id=image.original_media_id, ig_media_id=image.ig_media_id
+        )
+    )
+    db.commit()
+    post_ids, media_id = (first.id, second.id), image.original_media_id
+    barrier = threading.Barrier(2)
+    errors = []
+
+    def remove(post_id):
+        with SessionLocal() as session:
+            try:
+                post = session.get(models.Post, post_id)
+                barrier.wait(timeout=5)
+                service._detach_image(session, post)
+                session.commit()
+            except Exception as exc:  # 記錄下來讓測試失敗，而不是讓執行緒默默結束
+                errors.append(exc)
+
+    threads = [threading.Thread(target=remove, args=(post_id,)) for post_id in post_ids]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+
+    db.expire_all()
+    assert errors == []
+    assert db.get(models.MediaFile, media_id) is None

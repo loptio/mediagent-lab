@@ -96,3 +96,16 @@ def test_database_errors_do_not_include_query_parameters():
         conn.execute(text("SELECT CAST(:secret AS text), 1 / 0"), {"secret": "s3cret-hash-value"})
 
     assert "s3cret-hash-value" not in str(error.value)
+
+
+def test_event_tables_are_indexed_for_the_audit_query():
+    """稽核查詢依時間排序、依帳號篩選；未登入的人也能產生登入失敗事件，表會一直長大。"""
+    indexes = {
+        table: {tuple(index["column_names"]) for index in inspect(engine).get_indexes(table)}
+        for table in ("login_security_event", "platform_auth_event")
+    }
+
+    assert ("occurred_at", "event_seq") in indexes["login_security_event"]
+    assert ("user_account_id",) in indexes["login_security_event"]
+    assert ("occurred_at", "event_seq") in indexes["platform_auth_event"]
+    assert ("actor_id",) in indexes["platform_auth_event"]

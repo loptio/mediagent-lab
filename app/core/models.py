@@ -138,6 +138,8 @@ class LoginSecurityEvent(Base):
             "(failure_reason = 'ACCOUNT_NOT_FOUND') = (user_account_id IS NULL)",
             name="ck_login_security_event_account",
         ),
+        Index("ix_login_security_event_occurred", text("occurred_at DESC"), text("event_seq DESC")),
+        Index("ix_login_security_event_account", "user_account_id"),
     )
 
     id: Mapped[int] = _pk()
@@ -209,6 +211,8 @@ class PlatformAuthEvent(Base):
             "event_type <> 'RELINK_FAILED' OR platform_account_id IS NOT NULL",
             name="ck_platform_auth_event_relink_account",
         ),
+        Index("ix_platform_auth_event_occurred", text("occurred_at DESC"), text("event_seq DESC")),
+        Index("ix_platform_auth_event_actor", "actor_id"),
     )
 
     id: Mapped[int] = _pk()

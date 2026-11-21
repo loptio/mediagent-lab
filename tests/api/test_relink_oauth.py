@@ -185,3 +185,20 @@ def test_relink_restores_an_account_marked_invalid(client, db, mock_platforms):
 
     db.expire_all()
     assert db.get(models.PlatformAccount, threads.id).auth_status == "valid"
+
+
+def test_relink_refuses_an_account_without_a_platform_id(client, db, mock_platforms):
+    """沒有平台識別碼就無法確認是不是同一個帳號：一律拒絕，不接受任何登入的帳號。"""
+    users, accounts = seed_club(db)
+    threads = accounts["threads"]
+    threads.platform_user_id = None
+    db.commit()
+    mock_platforms[Platform.THREADS].oauth_account(
+        OAuthAccount("th-anyone", "someone", {"access_token": "t"}, None)
+    )
+
+    assert (
+        authorize(client, login(client, "president@club.tw"), account_id=threads.id) == "PLATFORM_ID_MISMATCH"
+    )
+    db.expire_all()
+    assert db.get(models.PlatformAccount, threads.id).account_name == "ntu_guitar_threads"

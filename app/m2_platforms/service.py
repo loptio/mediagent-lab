@@ -284,7 +284,7 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
     relinking = None
     if issued.platform_account_id is not None:
         relinking = repository.get_active(db, issued.platform_account_id, for_update=True)
-        if relinking is None:  # 授權期間被移除
+        if relinking is None or relinking.platform != issued.platform:  # 授權期間被移除，或平台不符
             return RESULT_AUTH_FAILED
     if account is None:
         # 使用者拒絕授權、授權碼換不到憑證，或暫時連不上平台（BR-37）；重新連結失敗時保留原有資料
@@ -323,7 +323,8 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
 
 def _relink(db: Session, admin: UserAccount, target: PlatformAccount, account: OAuthAccount) -> str:
     """重新連結（FR-21、BR-38）：必須是同一個平台帳號；成功時更新憑證、名稱與到期時間，連結者不變。"""
-    if target.platform_user_id and account.platform_user_id != target.platform_user_id:
+    # 沒有識別碼就無法確認是同一個帳號：一律視為不一致（fail closed）
+    if not target.platform_user_id or account.platform_user_id != target.platform_user_id:
         _link_failed(
             db, admin, None, PlatformAuthFailureReason.PLATFORM_ID_MISMATCH, target.platform, target
         )

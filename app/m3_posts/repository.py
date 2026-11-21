@@ -1,5 +1,5 @@
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.models import PlatformAccount, Post, PostTarget
 
@@ -38,7 +38,8 @@ def list_page(db: Session, status: str | None, offset: int, limit: int) -> list[
     # BR-44：建立時間由新到舊，相同時依 ID 由大到小
     stmt = (
         select(Post)
-        .options(joinedload(Post.creator))
+        # 列表要顯示 has_image：一次載入所有貼文的圖片關聯，不要每則貼文各查一次
+        .options(joinedload(Post.creator), selectinload(Post.image))
         .where(Post.deleted_at.is_(None))
         .order_by(Post.created_at.desc(), Post.id.desc())
         .offset(offset)

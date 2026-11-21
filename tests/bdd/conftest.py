@@ -53,15 +53,34 @@ def feature(name: str) -> str:
 
 
 def pytest_collection_modifyitems(config, items):
+    """PENDING：預期失敗（xfail strict）——哪天其實通過了，測試會失敗，提醒把宣告拿掉。
+    SKIP：這個例子在目前的測試方式下無法有效驗證（跑了也只會空泛地通過），直接略過。
+    宣告的鍵對不到任何例子時報錯，避免 Rule 改名後宣告默默失效。"""
+    used: dict[object, set[str]] = {}
     for item in items:
         template = scenario_wrapper_template_registry.get(getattr(item, "obj", None))
         if template is None:
             continue
-        pending: dict[str, str] = getattr(item.module, "PENDING", {})
         rule = template.name.split(" — ", 1)[0]
-        reason = pending.get(template.name) or pending.get(rule) or pending.get("*")
-        if reason:
-            item.add_marker(pytest.mark.skip(reason=f"pending：{reason}"))
+        for attribute, marker in (("PENDING", "xfail"), ("SKIP", "skip")):
+            declared: dict[str, str] = getattr(item.module, attribute, {})
+            for key in (template.name, rule, "*"):
+                if key in declared:
+                    used.setdefault((item.module, attribute), set()).add(key)
+                    reason = declared[key]
+                    if marker == "xfail":
+                        item.add_marker(pytest.mark.xfail(strict=True, reason=f"pending：{reason}"))
+                    else:
+                        item.add_marker(pytest.mark.skip(reason=f"無法有效驗證：{reason}"))
+                    break
+    modules = {
+        item.module for item in items if scenario_wrapper_template_registry.get(getattr(item, "obj", None))
+    }
+    for module in modules:
+        for attribute in ("PENDING", "SKIP"):
+            unused = set(getattr(module, attribute, {})) - used.get((module, attribute), set())
+            if unused:
+                raise pytest.UsageError(f"{module.__name__}.{attribute} 對不到任何例子：{sorted(unused)}")
 
 
 # ---------- 每個例子共用的狀態 ----------

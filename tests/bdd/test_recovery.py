@@ -12,9 +12,12 @@ from tests.bdd.labels import code, tw_time  # noqa: F401
 from tests.bdd.steps.common import Result, iso, rows, step  # noqa: F401
 
 # 尚未實作的功能：{"Rule 或 Rule — Example": "原因"}
-PENDING: dict[str, str] = {
+# 無法有效驗證、直接略過的例子（原因寫在值裡）
+SKIP: dict[str, str] = {
     "後置：平台明確確認未發佈時，系統自動重新發佈到該平台帳號，結果出來前發佈紀錄維持待發佈 — 自動重新發佈尚未完成時，紀錄維持待發佈": "「發佈尚未完成」的測試替身會擋下這個帳號的所有寫回，即使沒有自動重送也會通過（不是有效的測試）；重送進行中的狀態要在非同步測試中觀察",
 }
+
+PENDING: dict[str, str] = {}
 
 scenarios(feature("發佈逾時恢復"))
 
