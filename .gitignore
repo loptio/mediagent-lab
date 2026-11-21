@@ -4,6 +4,11 @@ __pycache__/
 venv/
 .env
 .DS_Store
+.pytest_cache/
+.ruff_cache/
+
+# 執行計畫時的暫存工作區
+.superpowers/
 
 # AI Governance & Agent instructions (Excluded from project repo)
 AGENTS.md
