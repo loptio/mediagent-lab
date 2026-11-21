@@ -397,3 +397,70 @@ def test_unexpected_response_shapes_are_authorization_failures(debug_data):
 
     with pytest.raises(OAuthFailed):
         run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
+
+
+@pytest.mark.parametrize("expires_in", ["never", 10**20, [1], -5, 0])
+def test_odd_expiry_values_count_as_unknown(expires_in):
+    """授權已經成功：到期時間看不懂時視為未知（需求 4.2），不讓導回變成 500。"""
+
+    def handler(request, n):
+        if n == 1:
+            return httpx.Response(200, json={"access_token": TOKEN, "expires_in": expires_in})
+        return assigned((IG_ID, "mediagentlab"))
+
+    account, _ = run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
+
+    assert account.expires_at is None
+
+
+def _fallback_handler(*profiles):
+    def handler(request, n):
+        if n == 1:
+            return httpx.Response(200, json={"access_token": TOKEN})
+        if n == 2:
+            return assigned()
+        if n == 3:
+            ids = [IG_ID, "17841400000000001"][: len(profiles)]
+            return httpx.Response(
+                200, json={"data": {"granular_scopes": [{"scope": "instagram_basic", "target_ids": ids}]}}
+            )
+        return profiles[n - 4]
+
+    return handler
+
+
+def test_fallback_lookup_when_meta_is_unavailable_is_not_an_authorization_failure():
+    """兩個帳號其中一個查詢遇到 503：不能只連結另一個（會繞過「只能分享一個」），也不能說沒有分享帳號。"""
+    handler = _fallback_handler(
+        httpx.Response(503), httpx.Response(200, json={"id": "17841400000000001", "username": "x"})
+    )
+
+    with pytest.raises(VerificationUnavailable):
+        run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
+
+
+def test_fallback_skips_accounts_the_token_cannot_read():
+    handler = _fallback_handler(
+        graph_error(400, "Unsupported get request", code=100),
+        httpx.Response(200, json={"id": "17841400000000001", "username": "other_club"}),
+    )
+
+    account, _ = run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
+
+    assert account.account_name == "other_club"
+
+
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        (graph_error(403, "missing permission", code=10), FailureReason.AUTH_INVALID),
+        (graph_error(403, "permission denied", code=200), FailureReason.AUTH_INVALID),
+        (graph_error(400, "Application request limit reached", code=4), UNAVAILABLE),
+        (graph_error(400, "User request limit reached", code=17), UNAVAILABLE),
+        (graph_error(400, "suspected spam", code=4, subcode=2207051), REJECTED),
+    ],
+)
+def test_permission_and_rate_limit_errors_are_classified(response, reason):
+    result, _ = run(lambda r, n: response, lambda a: a.begin(CREDENTIAL, CONTENT))
+
+    assert result.reason == reason

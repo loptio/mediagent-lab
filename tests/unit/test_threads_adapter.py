@@ -309,3 +309,17 @@ def test_image_without_a_public_https_url_is_not_sent():
 
     assert requests == []
     assert result.reason == FailureReason.OTHER and "MEDIA_BASE_URL" in result.message
+
+
+@pytest.mark.parametrize("expires_in", ["never", 10**20, [1]])
+def test_odd_expiry_values_count_as_unknown(expires_in):
+    def handler(request, n):
+        if n == 1:
+            return httpx.Response(200, json={"access_token": "short", "user_id": 17841})
+        if n == 2:
+            return httpx.Response(200, json={"access_token": TOKEN, "expires_in": expires_in})
+        return httpx.Response(200, json={"id": "17841", "username": "ntu_guitar"})
+
+    account, _ = run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
+
+    assert account.expires_at is None

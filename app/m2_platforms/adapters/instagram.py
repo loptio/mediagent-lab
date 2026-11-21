@@ -6,16 +6,16 @@
 - 這個 Token 的 /me 是系統使用者，不是 Instagram 帳號；帳號由 /me/assigned_instagram_accounts 取得。
 
 發佈：建立 container（begin）→ 查詢 status_code（check）→ media_publish（finalize）。
-container ID 就是 request_ref；重試規則與 Threads 相同（D-11）。Token 一律放在 Authorization 標頭。
+container ID 就是 request_ref；重試規則與 Threads 相同（D-11）。
+呼叫 API 時 Token 放在 Authorization 標頭；只有換 Token 與 debug_token 依官方文件放在查詢參數，
+因此錯誤訊息一律先濾掉 Token 與 App 密鑰，httpx 的請求紀錄也已在 app/main.py 關閉。
 """
 
-from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
-from app.core import clock
 from app.core.config import get_settings
 from app.core.enums import FailureReason, Platform
 from app.core.platforms import (
@@ -32,7 +32,7 @@ from app.core.platforms import (
     VerificationUnavailable,
 )
 
-from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, scrub, send
+from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, expires_at, scrub, send
 
 API_VERSION = "v27.0"
 DIALOG_URL = f"https://www.facebook.com/{API_VERSION}/dialog/oauth"
@@ -45,9 +45,17 @@ _CONTAINER_STATUS = {
     "IN_PROGRESS": CheckStatus.PROCESSING,
     "PUBLISHED": CheckStatus.PUBLISHED,
 }
-# Instagram 錯誤碼：-1／-2 是平台內部錯誤或下載圖片逾時，9 是當日發文上限，都是過一段時間再試即可
-_UNAVAILABLE_CODES = {-1, -2, 9}
-_SESSION_INVALID_CODE = 102
+# 錯誤碼（Graph API 與 Instagram 錯誤碼文件）：
+# - 授權失效：190 Token 無效、102 工作階段失效、10 與 200～299 權限不足（要重新授權才能恢復）
+# - 平台暫時問題：-1／-2 平台內部錯誤或下載圖片逾時、9 當日發文上限、4／17／32／613 呼叫頻率上限
+# - 2207051 是被判定為垃圾內容（錯誤碼也是 4），屬於內容被拒
+_AUTH_CODES = {GRAPH_INVALID_TOKEN_CODE, 102, 10}
+_UNAVAILABLE_CODES = {-1, -2, 9, 4, 17, 32, 613}
+_SPAM_SUBCODE = 2207051
+
+
+def _auth_invalid(code: Any) -> bool:
+    return isinstance(code, int) and (code in _AUTH_CODES or 200 <= code < 300)
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -156,12 +164,11 @@ class InstagramAdapter:
         if len(accounts) > 1:
             raise OAuthFailed("several Instagram accounts were shared; share exactly one per link")
         ig_user_id, username = accounts[0]
-        expires_in = exchanged.get("expires_in")
         return OAuthAccount(
             platform_user_id=ig_user_id,
             account_name=username,
             credential={"access_token": token, "ig_user_id": ig_user_id, "username": username},
-            expires_at=clock.now() + timedelta(seconds=int(expires_in)) if expires_in else None,
+            expires_at=expires_at(exchanged.get("expires_in")),
         )
 
     async def _granted_accounts(
@@ -185,19 +192,21 @@ class InstagramAdapter:
             response = await client.get(
                 f"{API_URL}/{ig_user_id}", params={"fields": "id,username"}, headers=_bearer(token)
             )
-            if response.status_code == 200:
-                profile = parse(response)
-                accounts.append((str(profile["id"]), str(profile["username"])))
+            if 400 <= response.status_code < 500 and response.status_code != 429:
+                continue  # Token 讀不到這個帳號：不算分享給我們
+            profile = parse(response)  # 429、5xx：暫時無法確認，不能只連結查得到的那幾個
+            accounts.append((str(profile["id"]), str(profile["username"])))
         return accounts
 
     # ---------- 三步發佈（PlatformAdapter） ----------
 
     def _failure(self, response: httpx.Response, credential: Credential) -> Failed:
-        message, code, _, transient = error_details(response)
+        message, code, subcode, transient = error_details(response)
         status = response.status_code
-        if status == 401 or code in (GRAPH_INVALID_TOKEN_CODE, _SESSION_INVALID_CODE):
+        rate_limited = code in _UNAVAILABLE_CODES and subcode != _SPAM_SUBCODE
+        if status == 401 or _auth_invalid(code):
             reason = FailureReason.AUTH_INVALID
-        elif status == 429 or status >= 500 or transient or code in _UNAVAILABLE_CODES:
+        elif status == 429 or status >= 500 or transient or rate_limited:
             reason = FailureReason.PLATFORM_UNAVAILABLE
         elif 400 <= status < 500:
             reason = FailureReason.CONTENT_REJECTED

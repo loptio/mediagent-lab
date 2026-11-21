@@ -1,13 +1,18 @@
 """Threads 與 Instagram 共用的 Meta Graph API 工具：錯誤解析、過濾憑證、有限重試（foundation-plan D-11）。"""
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 
 import httpx
 
+from app.core import clock
+
 MAX_RETRIES = 2
 MAX_ERROR_MESSAGE_LENGTH = 300
 GRAPH_INVALID_TOKEN_CODE = 190
+# Token 有效期的合理上限；超過的值視為平台回傳異常
+MAX_TOKEN_SECONDS = 10 * 365 * 24 * 3600
 
 
 class GraphError(NamedTuple):
@@ -23,6 +28,19 @@ def scrub(text: str, *secrets: str | None) -> str:
         if secret:
             text = text.replace(secret, "[redacted]")
     return text[:MAX_ERROR_MESSAGE_LENGTH]
+
+
+def expires_at(expires_in: Any) -> datetime | None:
+    """平台回傳的有效秒數 → 授權到期時間。授權已經成功，看不懂的值一律視為未知（需求 4.2），不讓導回失敗。"""
+    if isinstance(expires_in, bool):
+        return None
+    try:
+        seconds = int(expires_in)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not 0 < seconds <= MAX_TOKEN_SECONDS:
+        return None
+    return clock.now() + timedelta(seconds=seconds)
 
 
 def error_details(response: httpx.Response) -> GraphError:

@@ -11,13 +11,11 @@ container ID 就是 request_ref：逾時或中斷後，可以用它向 Threads �
 因此錯誤訊息一律先濾掉 Token 與 App 密鑰，httpx 的請求紀錄也已在 app/main.py 關閉。
 """
 
-from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
-from app.core import clock
 from app.core.config import get_settings
 from app.core.enums import FailureReason, Platform
 from app.core.platforms import (
@@ -34,7 +32,7 @@ from app.core.platforms import (
     VerificationUnavailable,
 )
 
-from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, scrub, send
+from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, expires_at, scrub, send
 
 AUTHORIZE_URL = "https://threads.com/oauth/authorize"
 GRAPH_URL = "https://graph.threads.com"
@@ -161,12 +159,11 @@ class ThreadsAdapter:
         except KeyError as exc:
             raise OAuthFailed("unexpected response from Threads") from exc
 
-        expires_in = long_lived.get("expires_in")
         return OAuthAccount(
             platform_user_id=user_id,
             account_name=username,
             credential={"access_token": token, "user_id": user_id, "username": username},
-            expires_at=clock.now() + timedelta(seconds=int(expires_in)) if expires_in else None,
+            expires_at=expires_at(long_lived.get("expires_in")),
         )
 
     # ---------- 三步發佈（PlatformAdapter） ----------
