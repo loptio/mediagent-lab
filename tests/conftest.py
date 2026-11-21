@@ -18,6 +18,8 @@ os.environ["JWT_SECRET"] = "test-only-jwt-secret-0123456789abcdef"
 os.environ["CREDENTIAL_ENCRYPTION_KEYS"] = Fernet.generate_key().decode()
 os.environ["DEV_MODE"] = "0"
 os.environ["PLATFORM_MODE"] = "mock"
+# 服務內的排程迴圈在測試中關閉；測試直接呼叫排程函式或內部端點
+os.environ["SCHEDULER_ENABLED"] = "0"
 
 
 @pytest.fixture(scope="session", autouse=True)

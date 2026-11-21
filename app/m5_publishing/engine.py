@@ -14,6 +14,8 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from datetime import timedelta
+from enum import StrEnum
 
 from starlette.concurrency import run_in_threadpool
 
@@ -50,6 +52,21 @@ logger = logging.getLogger("mediagent.publish")
 
 Outcome = Published | Failed
 
+
+class RunMode(StrEnum):
+    """這次執行是怎麼開始的：決定變更歷程的原因與稽核內容。"""
+
+    PUBLISH = "PUBLISH"  # 使用者立即發佈
+    SCHEDULED = "SCHEDULED"  # 排程時間到，由系統發佈
+    RETRY = "RETRY"  # 使用者重試
+
+
+_RESULT_REASONS: dict[RunMode, tuple[HistoryReason, HistoryReason]] = {
+    RunMode.PUBLISH: (HistoryReason.PUBLISH_SUCCEEDED, HistoryReason.PUBLISH_FAILED),
+    RunMode.SCHEDULED: (HistoryReason.PUBLISH_SUCCEEDED, HistoryReason.PUBLISH_FAILED),
+    RunMode.RETRY: (HistoryReason.RETRY_SUCCEEDED, HistoryReason.RETRY_FAILED),
+}
+
 # 發文動作以這些原因失敗時，平台其實可能已經把貼文發出去了（沒有回應、5xx、429 用完重試）
 UNCERTAIN_FINALIZE_FAILURES = (FailureReason.TIMEOUT, FailureReason.PLATFORM_UNAVAILABLE)
 
@@ -64,17 +81,18 @@ class Job:
     content: PostContent
 
 
-async def run_post(post_id: int, actor_id: int | None = None) -> None:
+async def run_post(post_id: int, actor_id: int | None = None, mode: RunMode = RunMode.PUBLISH) -> None:
     """發佈一則貼文所有待發佈的紀錄。actor_id 是觸發發佈的使用者；None 代表系統（排程）。"""
     jobs = await run_in_threadpool(_load_jobs, post_id)
-    await asyncio.gather(*(_process(job) for job in jobs))
-    await run_in_threadpool(_conclude, post_id, actor_id)
+    succeeded, failed = _RESULT_REASONS[mode]
+    await asyncio.gather(*(_process(job, succeeded, failed) for job in jobs))
+    await run_in_threadpool(_conclude, post_id, actor_id, mode, {job.record_id for job in jobs})
 
 
 # ---------- 單一平台帳號 ----------
 
 
-async def _process(job: Job) -> None:
+async def _process(job: Job, succeeded: HistoryReason, failed: HistoryReason) -> None:
     """處理一筆發佈紀錄。無論發生什麼事，這一筆最後一定要有結果，貼文才不會卡在發佈中。"""
     try:
         outcome = await _attempt(job)
@@ -84,14 +102,15 @@ async def _process(job: Job) -> None:
     if not isinstance(outcome, Published | Failed):
         outcome = Failed(FailureReason.OTHER, "adapter returned an invalid result")
 
+    reason = succeeded if isinstance(outcome, Published) else failed
     try:
-        await run_in_threadpool(_write_back, job, outcome)
+        await run_in_threadpool(_write_back, job, outcome, reason)
     except Exception as exc:
         # 結果寫不進去（例如 Adapter 回報了不存在的失敗原因）：改記為「其他」失敗
         logger.error("result of record %s could not be stored: %s", job.record_id, type(exc).__name__)
         fallback = Failed(FailureReason.OTHER, "result could not be recorded")
         try:
-            await run_in_threadpool(_write_back, job, fallback)
+            await run_in_threadpool(_write_back, job, fallback, failed)
         except Exception:
             logger.exception("could not record any result for record %s", job.record_id)
 
@@ -161,6 +180,12 @@ async def _safe_check(
 # ---------- 資料庫（同步，短交易） ----------
 
 
+def lease_is_free(attempt_started_at, now) -> bool:
+    """這一筆是否沒有人在處理：從沒開始過，或上一次嘗試已超過單筆總時限（D-01、D-02）。"""
+    limit = timedelta(seconds=get_settings().publish_record_limit_seconds)
+    return attempt_started_at is None or attempt_started_at <= now - limit
+
+
 def _load_jobs(post_id: int) -> list[Job]:
     with session_scope() as db:
         post = repository.get_post_for_update(db, post_id)
@@ -169,6 +194,8 @@ def _load_jobs(post_id: int) -> list[Job]:
         now = clock.now()
         jobs = []
         for record in repository.pending_records(db, post_id):
+            if not lease_is_free(record.attempt_started_at, now):
+                continue  # 另一個執行者正在處理這一筆，不重複送出
             repository.start_attempt(db, record, now)
             account = record.platform_account
             jobs.append(
@@ -188,21 +215,17 @@ def _save_request_ref(record_id: int, request_ref: str) -> None:
         repository.save_request_ref(db, record_id, request_ref)
 
 
-def _write_back(job: Job, outcome: Outcome) -> None:
+def _write_back(job: Job, outcome: Outcome, reason: HistoryReason) -> None:
     succeeded = isinstance(outcome, Published)
     with session_scope() as db:
         publish_records.set_result(
-            db,
-            job.record_id,
-            outcome,
-            reason=HistoryReason.PUBLISH_SUCCEEDED if succeeded else HistoryReason.PUBLISH_FAILED,
-            content_summary=job.content.text,
+            db, job.record_id, outcome, reason=reason, content_summary=job.content.text
         )
         if not succeeded and outcome.reason == FailureReason.AUTH_INVALID:
             mark_auth_invalid(db, job.account_id)  # BR-09
 
 
-def _conclude(post_id: int, actor_id: int | None) -> None:
+def _conclude(post_id: int, actor_id: int | None, mode: RunMode, ran_ids: set[int]) -> None:
     """所有紀錄都有結果後，判定貼文狀態（BR-15）並寫入稽核紀錄。"""
     with session_scope() as db:
         post = repository.get_post_for_update(db, post_id)
@@ -220,15 +243,20 @@ def _conclude(post_id: int, actor_id: int | None) -> None:
         else:
             final = PostStatus.PARTIALLY_FAILED
         transition_post(post, final)
-        post.scheduled_at = None  # BR-29：已排程改立即發佈，完成後清空排程時間
+        by_system = mode == RunMode.SCHEDULED
+        if mode == RunMode.PUBLISH:
+            post.scheduled_at = None  # BR-29：已排程改立即發佈，完成後清空排程時間
 
         audit.write(
             db,
             action=AuditAction.POST_PUBLISH,
-            actor=db.get(UserAccount, actor_id) if actor_id else None,
+            actor=db.get(UserAccount, actor_id) if actor_id and not by_system else None,
             target_type=TargetType.POST,
             target_id=post.id,
             result=final,
+            # 系統發佈時記錄是誰設定排程、誰建立貼文
+            scheduled_by=post.scheduled_by if by_system else None,
+            post_creator_id=post.creator_id if by_system else None,
             target_results=[
                 {
                     "platform_account_id": r.platform_account_id,

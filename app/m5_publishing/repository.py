@@ -3,13 +3,28 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import RecordStatus
+from app.core.enums import PostStatus, RecordStatus
 from app.core.models import PlatformAccount, Post, PostTarget, PublishRecord
 
 
 def get_post_for_update(db: Session, post_id: int) -> Post | None:
     stmt = select(Post).where(Post.id == post_id, Post.deleted_at.is_(None)).with_for_update()
     return db.scalar(stmt)
+
+
+def lock_due_posts(db: Session, now: datetime) -> list[Post]:
+    """排程時間已到的已排程貼文；被其他執行者鎖住的跳過（NFR-11）。"""
+    stmt = (
+        select(Post)
+        .where(
+            Post.status == PostStatus.SCHEDULED,
+            Post.scheduled_at <= now,
+            Post.deleted_at.is_(None),
+        )
+        .order_by(Post.scheduled_at, Post.id)
+        .with_for_update(skip_locked=True)
+    )
+    return list(db.scalars(stmt))
 
 
 def target_accounts(db: Session, post_id: int) -> list[PlatformAccount]:

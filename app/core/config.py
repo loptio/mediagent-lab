@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     platform_call_timeout_seconds: float = 30
     publish_record_limit_seconds: float = 180
     publish_poll_interval_seconds: float = 5
+    # 進入發佈中滿這麼久仍有待發佈紀錄，就由逾時恢復接手（BR-33）
+    publish_recovery_minutes: float = 10
+
+    # 排程（foundation-plan D-07）：服務內每分鐘檢查一次；外部定時任務以 X-Cron-Secret 呼叫內部端點
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: float = 60
+    # 沒有設定時，內部端點一律拒絕
+    cron_secret: str = ""
 
     # 平台授權（OAuth）：Meta 開發者網站上 Threads 使用情境的 App ID 與密鑰
     threads_app_id: str = ""

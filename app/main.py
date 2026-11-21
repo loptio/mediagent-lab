@@ -1,7 +1,10 @@
 """mediagent 後端：組裝 router、Request ID、錯誤處理與健康檢查。"""
 
+import asyncio
+import contextlib
 import logging
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -37,10 +40,26 @@ class RedactOAuthQuery(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(RedactOAuthQuery())
 
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """服務啟動時開始排程迴圈（SCHEDULER_ENABLED=0 時不啟動），關閉時停止。"""
+    task = None
+    if get_settings().scheduler_enabled:
+        from .m5_publishing import scheduler
+
+        task = asyncio.create_task(scheduler.run_loop())
+    yield
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 app = FastAPI(
     title="mediagent API",
     version="0.1.0",
     description="社團多平台貼文同步發佈服務（原型）",
+    lifespan=lifespan,
 )
 install_error_handlers(app)
 
@@ -69,6 +88,7 @@ def _include_routers() -> None:
     from .m2_platforms.router import router as platforms_router
     from .m3_posts.router import router as posts_router
     from .m4_scheduling.router import router as scheduling_router
+    from .m5_publishing.internal_router import router as internal_router
     from .m5_publishing.router import router as publishing_router
 
     for router in (
@@ -77,6 +97,7 @@ def _include_routers() -> None:
         posts_router,
         scheduling_router,
         publishing_router,
+        internal_router,
     ):
         app.include_router(router, prefix=API_PREFIX)
 
