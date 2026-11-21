@@ -27,6 +27,28 @@ def lock_due_posts(db: Session, now: datetime) -> list[Post]:
     return list(db.scalars(stmt))
 
 
+def lock_stale_posts(db: Session, started_before: datetime) -> list[Post]:
+    """進入發佈中的時間不晚於 started_before 的貼文（BR-33）；被其他執行者鎖住的跳過。"""
+    stmt = (
+        select(Post)
+        .where(
+            Post.status == PostStatus.PUBLISHING,
+            Post.publishing_started_at <= started_before,
+            Post.deleted_at.is_(None),
+        )
+        .order_by(Post.publishing_started_at, Post.id)
+        .with_for_update(skip_locked=True)
+    )
+    return list(db.scalars(stmt))
+
+
+def count_auto_retry(db: Session, record_id: int) -> None:
+    record = db.get(PublishRecord, record_id)
+    if record is not None:
+        record.auto_retry_count += 1
+        db.flush()
+
+
 def target_accounts(db: Session, post_id: int) -> list[PlatformAccount]:
     stmt = (
         select(PlatformAccount)

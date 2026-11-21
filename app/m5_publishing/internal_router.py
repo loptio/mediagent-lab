@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import get_settings
 from app.core.errors import DomainError
 
-from . import engine, scheduler
+from . import engine, recovery, scheduler
 from .engine import RunMode
 
 
@@ -33,3 +33,10 @@ async def publish_due(background: BackgroundTasks) -> dict[str, int]:
     for post_id in post_ids:
         background.add_task(engine.run_post, post_id, None, RunMode.SCHEDULED)
     return {"started": len(post_ids)}
+
+
+@router.post("/publish-recovery")
+async def publish_recovery() -> dict[str, int]:
+    """處理進入發佈中超過 10 分鐘仍有待發佈紀錄的貼文（BR-33）；平台確認未發出的每筆最多重送一次。"""
+    result = await recovery.recover_stale(allow_auto_retry=True)
+    return {"checked": result.checked, "recovered": result.recovered}

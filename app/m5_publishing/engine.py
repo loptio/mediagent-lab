@@ -95,14 +95,23 @@ async def run_post(post_id: int, actor_id: int | None = None, mode: RunMode = Ru
 
 async def _process(job: Job, succeeded: HistoryReason, failed: HistoryReason) -> None:
     """處理一筆發佈紀錄。無論發生什麼事，這一筆最後一定要有結果，貼文才不會卡在發佈中。"""
+    await record(job, await attempt(job), succeeded, failed)
+
+
+async def attempt(job: Job, request_ref: str | None = None) -> Outcome:
+    """發佈一筆，一定回傳結果。有 request_ref 時從保存的 container 接續，不重新建立（D-03）。"""
     try:
-        outcome = await _attempt(job)
+        outcome = await _attempt(job, request_ref)
     except Exception as exc:  # 憑證解不開、引擎自己的錯誤：只影響這一個目標
         logger.error("publish attempt for record %s raised %s", job.record_id, type(exc).__name__)
         outcome = Failed(FailureReason.OTHER, type(exc).__name__)
     if not isinstance(outcome, Published | Failed):
         outcome = Failed(FailureReason.OTHER, "adapter returned an invalid result")
+    return outcome
 
+
+async def record(job: Job, outcome: Outcome, succeeded: HistoryReason, failed: HistoryReason) -> None:
+    """寫回一筆結果；寫不進去時改記為「其他」失敗，紀錄不會一直停在待發佈。"""
     reason = succeeded if isinstance(outcome, Published) else failed
     try:
         await run_in_threadpool(_write_back, job, outcome, reason)
@@ -116,27 +125,28 @@ async def _process(job: Job, succeeded: HistoryReason, failed: HistoryReason) ->
             logger.exception("could not record any result for record %s", job.record_id)
 
 
-async def _attempt(job: Job) -> Outcome:
+async def _attempt(job: Job, request_ref: str | None = None) -> Outcome:
     settings = get_settings()
     adapter = get_adapter(job.platform)
     credential = decrypt_credential(job.credential_encrypted)
     deadline = time.monotonic() + settings.publish_record_limit_seconds
     call_timeout = settings.platform_call_timeout_seconds
 
-    try:
-        started = await asyncio.wait_for(adapter.begin(credential, job.content), call_timeout)
-    except TimeoutError:
-        return Failed(FailureReason.TIMEOUT)
-    except Exception as exc:
-        # Adapter 不應拋出例外；例外訊息可能含憑證，只記錄類別名稱
-        logger.error("adapter %s raised %s in begin", job.platform, type(exc).__name__)
-        return Failed(FailureReason.OTHER, type(exc).__name__)
-    if isinstance(started, Published | Failed):
-        return started  # 一步完成的平台（例如 Discord）
+    if request_ref is None:
+        try:
+            started = await asyncio.wait_for(adapter.begin(credential, job.content), call_timeout)
+        except TimeoutError:
+            return Failed(FailureReason.TIMEOUT)
+        except Exception as exc:
+            # Adapter 不應拋出例外；例外訊息可能含憑證，只記錄類別名稱
+            logger.error("adapter %s raised %s in begin", job.platform, type(exc).__name__)
+            return Failed(FailureReason.OTHER, type(exc).__name__)
+        if isinstance(started, Published | Failed):
+            return started  # 一步完成的平台（例如 Discord）
 
-    # 先保存 request_ref 再繼續：之後逾時或中斷，都還能向平台查詢這個 container
-    request_ref = started.request_ref
-    await run_in_threadpool(_save_request_ref, job.record_id, request_ref)
+        # 先保存 request_ref 再繼續：之後逾時或中斷，都還能向平台查詢這個 container
+        request_ref = started.request_ref
+        await run_in_threadpool(_save_request_ref, job.record_id, request_ref)
 
     while True:
         check = await _safe_check(adapter, credential, request_ref, call_timeout)
@@ -169,7 +179,7 @@ async def _attempt(job: Job) -> Outcome:
 
 
 async def _safe_check(
-    adapter: PlatformAdapter, credential: Credential, request_ref: str, timeout: float
+    adapter: PlatformAdapter, credential: Credential, request_ref: str | None, timeout: float
 ) -> CheckResult:
     """check 只查詢；逾時或出錯一律當成無法確認。"""
     try:
@@ -198,17 +208,19 @@ def _load_jobs(post_id: int) -> list[Job]:
             if not lease_is_free(record.attempt_started_at, now):
                 continue  # 另一個執行者正在處理這一筆，不重複送出
             repository.start_attempt(db, record, now)
-            account = record.platform_account
-            jobs.append(
-                Job(
-                    record_id=record.id,
-                    account_id=account.id,
-                    platform=account.platform,
-                    credential_encrypted=bytes(account.credential_encrypted),
-                    content=PostContent(text=post.content),
-                )
-            )
+            jobs.append(job_for(record, post))
         return jobs
+
+
+def job_for(record, post) -> Job:
+    account = record.platform_account
+    return Job(
+        record_id=record.id,
+        account_id=account.id,
+        platform=account.platform,
+        credential_encrypted=bytes(account.credential_encrypted),
+        content=PostContent(text=post.content),
+    )
 
 
 def _save_request_ref(record_id: int, request_ref: str) -> None:
@@ -236,13 +248,7 @@ def _conclude(post_id: int, actor_id: int | None, mode: RunMode, ran_ids: set[in
         if not records or any(r.status == RecordStatus.PENDING for r in records):
             return  # 還有紀錄沒結果，留給逾時恢復處理
 
-        succeeded = sum(r.status == RecordStatus.SUCCEEDED for r in records)
-        if succeeded == len(records):
-            final = PostStatus.PUBLISHED
-        elif succeeded == 0:
-            final = PostStatus.FAILED
-        else:
-            final = PostStatus.PARTIALLY_FAILED
+        final = final_status(records)
         transition_post(post, final)
         by_system = mode == RunMode.SCHEDULED
         if mode == RunMode.PUBLISH:
@@ -259,13 +265,23 @@ def _conclude(post_id: int, actor_id: int | None, mode: RunMode, ran_ids: set[in
             scheduled_by=post.scheduled_by if by_system else None,
             post_creator_id=post.creator_id if by_system else None,
             target_results=[
-                _not_retried(r) if mode == RunMode.RETRY and r.id not in ran_ids else _target_result(r)
+                _not_retried(r) if mode == RunMode.RETRY and r.id not in ran_ids else target_result(r)
                 for r in records
             ],
         )
 
 
-def _target_result(record) -> dict:
+def final_status(records) -> PostStatus:
+    """BR-15：全部成功為發佈完成，部分成功為部分失敗，全部失敗為全部失敗。"""
+    succeeded = sum(r.status == RecordStatus.SUCCEEDED for r in records)
+    if succeeded == len(records):
+        return PostStatus.PUBLISHED
+    if succeeded == 0:
+        return PostStatus.FAILED
+    return PostStatus.PARTIALLY_FAILED
+
+
+def target_result(record) -> dict:
     succeeded = record.status == RecordStatus.SUCCEEDED
     return {
         "platform_account_id": record.platform_account_id,

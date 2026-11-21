@@ -21,7 +21,7 @@ from app.core.enums import AuthStatus, FailureReason, HistoryReason, PostStatus
 from app.core.platforms import Failed, effective_auth_status
 from app.core.posts import transition_post
 
-from . import engine, repository
+from . import engine, recovery, repository
 from .engine import RunMode
 
 logger = logging.getLogger("mediagent.scheduler")
@@ -59,16 +59,25 @@ def start(post_id: int, mode: RunMode) -> asyncio.Task:
 
 
 async def tick() -> list[asyncio.Task]:
-    """檢查一次：開始發佈到期的貼文。回傳開始的背景工作（測試用來等待完成）。"""
+    """檢查一次：開始發佈到期的貼文，再處理逾時的發佈。回傳開始的背景工作（測試用來等待完成）。"""
     post_ids = await run_in_threadpool(claim_due_posts)
     if post_ids:
         logger.info("scheduled publishing started for %d post(s)", len(post_ids))
-    return [start(post_id, RunMode.SCHEDULED) for post_id in post_ids]
+    tasks = [start(post_id, RunMode.SCHEDULED) for post_id in post_ids]
+    await recovery.recover_stale(allow_auto_retry=True)
+    return tasks
 
 
 async def run_loop() -> None:
-    """服務內的排程迴圈；任何一次失敗只記錄下來，下一分鐘照常檢查。"""
+    """服務內的排程迴圈；任何一次失敗只記錄下來，下一分鐘照常檢查。
+
+    服務啟動時先做一次恢復檢查，但不重新發文（BR-33）：只確認結果，或記為發佈逾時。
+    """
     interval = get_settings().scheduler_interval_seconds
+    try:
+        await recovery.recover_stale(allow_auto_retry=False)
+    except Exception as exc:
+        logger.error("startup recovery failed: %s", type(exc).__name__)
     while True:
         try:
             await tick()
