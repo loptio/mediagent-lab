@@ -282,7 +282,13 @@ class MockAdapter:
         return Started(request_ref)
 
     async def check(self, credential: Credential, request_ref: str | None) -> CheckResult:
-        return self._checks.get(credential["account_name"], CheckResult(CheckStatus.READY))
+        """測試有指定就回傳指定的結果；否則認得的 container（或沒有參照）回 READY，不認得的回 UNKNOWN。"""
+        configured = self._checks.get(credential["account_name"])
+        if configured is not None:
+            return configured
+        if request_ref is not None and request_ref not in self._pending:
+            return CheckResult(CheckStatus.UNKNOWN)  # 例如模擬平台被重設過，查不到這個 container
+        return CheckResult(CheckStatus.READY)
 
     async def finalize(self, credential: Credential, request_ref: str) -> Published | Failed:
         name, content = self._pending.pop(request_ref)

@@ -23,6 +23,16 @@ def get_accounts(db: Session, account_ids: list[int]) -> list[PlatformAccount]:
     return list(db.scalars(stmt))
 
 
+def target_accounts(db: Session, post_id: int) -> list[PlatformAccount]:
+    stmt = (
+        select(PlatformAccount)
+        .join(PostTarget, PostTarget.platform_account_id == PlatformAccount.id)
+        .where(PostTarget.post_id == post_id)
+        .order_by(PlatformAccount.id)
+    )
+    return list(db.scalars(stmt))
+
+
 def replace_targets(db: Session, post_id: int, account_ids: list[int]) -> None:
     db.execute(delete(PostTarget).where(PostTarget.post_id == post_id))
     db.add_all(PostTarget(post_id=post_id, platform_account_id=aid) for aid in account_ids)

@@ -7,6 +7,14 @@ class TargetsUpdate(BaseModel):
     platform_account_ids: list[int]
 
 
+class ScheduleUpdate(BaseModel):
+    """排程時間以台灣時間輸入；沒有時區時視為台灣時間，以 UTC 儲存。"""
+
+    model_config = {"json_schema_extra": {"examples": [{"scheduled_at": "2026-12-01T12:00:00+08:00"}]}}
+
+    scheduled_at: datetime
+
+
 class TargetOut(BaseModel):
     id: int
     platform: str
