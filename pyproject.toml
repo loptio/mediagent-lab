@@ -9,6 +9,10 @@ select = ["E", "F", "I", "B", "UP"]
 # FastAPI 的 Depends()／Security() 寫在參數預設值是慣用寫法
 ignore = ["B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# 驗收測試的 PENDING 以規格的 Rule 全名為鍵，直接照抄、不能折行
+"tests/bdd/test_*.py" = ["E501"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
