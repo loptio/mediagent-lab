@@ -2,10 +2,12 @@
 
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
-from app.core import clock, models
+from app.core import clock, models, platforms
 from app.core.enums import AuditAction, AuthStatus, FailureReason, Platform, PostStatus, RecordStatus
+from app.core.platforms import CheckResult, CheckStatus, MockAdapter, Published
 from tests.api.helpers import (
     API,
     create_post_with_targets,
@@ -191,3 +193,57 @@ def test_retry_auth_invalid_marks_account_invalid(client, db, mock_platforms):
     db.expire_all()
     assert db.get(models.PlatformAccount, accounts["instagram"].id).auth_status == AuthStatus.INVALID
     assert db.get(models.PlatformAccount, accounts["threads"].id).auth_status == AuthStatus.VALID
+
+
+class ContainerSpy(MockAdapter):
+    """記錄 begin 與 finalize 的呼叫；保存的 container「container-1」的查詢結果由測試指定。"""
+
+    def __init__(self, platform, saved_status):
+        super().__init__(platform)
+        self.saved_status = saved_status
+        self.begins = 0
+        self.finalized = []
+
+    async def begin(self, credential, content):
+        self.begins += 1
+        return await super().begin(credential, content)
+
+    async def check(self, credential, request_ref):
+        if request_ref == "container-1":
+            published = Published(post_url="https://threads.test/p/old")
+            return CheckResult(self.saved_status, published=published)
+        return CheckResult(CheckStatus.READY)
+
+    async def finalize(self, credential, request_ref):
+        self.finalized.append(request_ref)
+        return Published(post_id=request_ref, post_url=f"https://threads.test/p/{request_ref}")
+
+
+@pytest.mark.parametrize(
+    ("saved_status", "begins", "finalized", "url"),
+    [
+        # 上次其實已經發出：直接記為成功，不再發文
+        (CheckStatus.PUBLISHED, 0, [], "https://threads.test/p/old"),
+        # container 還在、可以發：從 finalize 接續，不建立新的
+        (CheckStatus.READY, 0, ["container-1"], "https://threads.test/p/container-1"),
+        # 其他情況：從 begin 重新開始
+        (CheckStatus.UNKNOWN, 1, ["mock-threads-1"], "https://threads.test/p/mock-threads-1"),
+    ],
+)
+def test_retry_with_saved_container_checks_first(client, db, saved_status, begins, finalized, url):
+    users, accounts = seed_club(db)
+    spy = ContainerSpy(Platform.THREADS, saved_status)
+    platforms.register_adapter(spy)
+    post_id = failed_post(db, users, [(accounts["threads"], "TIMEOUT")])
+    record = db.scalar(select(models.PublishRecord).where(models.PublishRecord.post_id == post_id))
+    record.platform_request_ref = "container-1"
+    db.commit()
+
+    response = retry(client, login(client, "pr@club.tw"), post_id)
+
+    assert response.status_code == 202, response.text
+    assert (spy.begins, spy.finalized) == (begins, finalized)
+    records = records_by_account(client, login(client, "pr@club.tw"), post_id)
+    assert (records["ntu_guitar_threads"]["status"], records["ntu_guitar_threads"]["platform_post_url"]) == (
+        "SUCCEEDED", url
+    )

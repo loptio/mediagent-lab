@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.core import clock, models
+from app.core import clock, models, platforms
 from app.core.config import get_settings
 from app.core.enums import AuditAction, FailureReason, Platform, PostStatus, RecordStatus
 from app.core.platforms import CheckResult, CheckStatus, Failed, Published
@@ -237,3 +237,37 @@ def test_recovery_endpoint_requires_secret_and_reports_counts(client, db, stale,
     assert response.status_code == 200, response.text
     assert response.json() == {"checked": 1, "recovered": 1}
     assert state(db, post_id)[0] == "PARTIALLY_FAILED"
+
+
+def test_record_started_four_minutes_ago_is_not_taken_over(db, stale, mock_platforms):
+    """一次嘗試最久可到 180 秒總時限再加上發文與確認各 30 秒：4 分鐘前開始的可能還沒結束。"""
+    _, _, post_id = stale
+    _, record = state(db, post_id)
+    record.attempt_started_at = clock.now() - timedelta(minutes=4)
+    db.commit()
+    published = CheckResult(CheckStatus.PUBLISHED, published=Published(post_url="https://threads.test/p/1"))
+    mock_platforms[Platform.THREADS].set_check(THREADS, published)
+
+    result = recover()
+
+    status, record = state(db, post_id)
+    assert (result.checked, status, record.status) == (0, "PUBLISHING", "PENDING")
+
+
+def test_auto_retry_renews_the_lease_before_resending(db, stale):
+    """查詢本身可能花上 30 秒；重送前要重新標記開始時間，別的恢復流程才不會在重送途中接手。"""
+    _, _, post_id = stale
+
+    class SlowCheck(platforms.MockAdapter):
+        async def check(self, credential, request_ref):
+            clock.set_fixed(clock.now() + timedelta(seconds=30))
+            return CheckResult(CheckStatus.READY)
+
+    platforms.register_adapter(SlowCheck(Platform.THREADS))
+    claimed_at = clock.now()
+
+    recover()
+
+    _, record = state(db, post_id)
+    assert record.status == "SUCCEEDED"
+    assert record.attempt_started_at >= claimed_at + timedelta(seconds=30)

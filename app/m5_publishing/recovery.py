@@ -27,6 +27,7 @@ from app.core.config import get_settings
 from app.core.crypto import decrypt_credential
 from app.core.db import session_scope
 from app.core.enums import AuditAction, FailureReason, HistoryReason, PostStatus, RecordStatus, TargetType
+from app.core.models import PublishRecord
 from app.core.platforms import CheckStatus, Failed, Published, get_adapter
 from app.core.posts import transition_post
 
@@ -125,8 +126,10 @@ async def _recover(item: StaleRecord, allow_auto_retry: bool) -> bool:
 
 
 def _count_auto_retry(record_id: int) -> None:
+    """記下自動重送一次，並重新標記開始時間：前面的查詢可能已經花掉 30 秒，租約要從重送開始算。"""
     with session_scope() as db:
         repository.count_auto_retry(db, record_id)
+        repository.start_attempt(db, db.get(PublishRecord, record_id), clock.now())
 
 
 def _conclude(post_id: int, auto_retried: set[int]) -> bool:

@@ -47,8 +47,8 @@ def ensure_pending(
     沒有紀錄就建立（變更原因 reason）；已取消或失敗的同一筆改回待發佈（不新增，BR-27、BR-16），
     變更原因為 revived_reason（沒給就用 reason）；已是待發佈或已成功的維持原狀，不寫變更歷程。
 
-    改回待發佈時清掉上一次嘗試的時間與平台參照：那次嘗試已經結束，
-    留著會讓發佈引擎以為還有人在處理這一筆（D-01 的租約），或讓恢復流程去查舊的 container。
+    改回待發佈時清掉上一次嘗試的開始時間：那次嘗試已經結束，留著會讓發佈引擎以為還有人在處理這一筆
+    （D-01 的租約）。平台參照（container）保留：重試時引擎會先查詢它，已發出就不再發文（D-01）。
     """
     record = db.scalar(
         select(PublishRecord).where(
@@ -69,7 +69,6 @@ def ensure_pending(
         record.failure_reason = None
         record.platform_error_message = None
         record.attempt_started_at = None
-        record.platform_request_ref = None
         db.flush()
         _record_history(db, record, previous, actor, revived_reason or reason)
     return record

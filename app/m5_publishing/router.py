@@ -28,7 +28,8 @@ def create_publish_job(
 ):
     """受理後立即回應 202，各平台在背景發佈；用 GET /posts/{id}/publish-records 查看結果。
 
-    重試只會重送失敗的平台帳號。失敗原因是「發佈逾時」時，請先到該平台確認貼文是否已經發出，避免重複貼文。
+    重試只會重送失敗的平台帳號。Threads 會先向平台確認上一次是否其實已經發出；
+    Discord 無法事後查詢，失敗原因是「發佈逾時」或「平台暫時無法連線」時，請先到頻道確認訊息是否已經發出。
     """
     if data.type == "retry":
         accepted = service.accept_retry(db, user, post_id)

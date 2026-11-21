@@ -1,5 +1,6 @@
 """給外部定時任務呼叫的內部端點（《API 設計》32～33）。不列入公開文件。"""
 
+import asyncio
 import hmac
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header
@@ -30,9 +31,14 @@ router = APIRouter(
 async def publish_due(background: BackgroundTasks) -> dict[str, int]:
     """發佈排程時間已到的貼文；認領後立即回應，實際發佈在背景進行。"""
     post_ids = await run_in_threadpool(scheduler.claim_due_posts)
-    for post_id in post_ids:
-        background.add_task(engine.run_post, post_id, None, RunMode.SCHEDULED)
+    if post_ids:
+        background.add_task(_publish_all, post_ids)
     return {"started": len(post_ids)}
+
+
+async def _publish_all(post_ids: list[int]) -> None:
+    """同時發佈：背景工作會一個接一個執行，所以放在同一個工作裡並行，一則慢的不會拖住其他貼文。"""
+    await asyncio.gather(*(engine.run_post(post_id, None, RunMode.SCHEDULED) for post_id in post_ids))
 
 
 @router.post("/publish-recovery")

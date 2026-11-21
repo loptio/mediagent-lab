@@ -80,6 +80,8 @@ class Job:
     # 憑證在處理這一筆時才解密：解不開只影響這一個目標，不會連累其他目標
     credential_encrypted: bytes
     content: PostContent
+    # 上一次嘗試保存的 container（重試時才會有）
+    request_ref: str | None = None
 
 
 async def run_post(post_id: int, actor_id: int | None = None, mode: RunMode = RunMode.PUBLISH) -> None:
@@ -95,7 +97,29 @@ async def run_post(post_id: int, actor_id: int | None = None, mode: RunMode = Ru
 
 async def _process(job: Job, succeeded: HistoryReason, failed: HistoryReason) -> None:
     """處理一筆發佈紀錄。無論發生什麼事，這一筆最後一定要有結果，貼文才不會卡在發佈中。"""
-    await record(job, await attempt(job), succeeded, failed)
+    await record(job, await _resume_or_attempt(job), succeeded, failed)
+
+
+async def _resume_or_attempt(job: Job) -> Outcome:
+    """D-01 手動重試：紀錄上有保存的 container 時先查詢。
+
+    已發出 → 直接記為成功，不再發文；READY → 從 finalize 接續；其他 → 從 begin 重新開始。
+    Threads、Instagram 逾時或 5xx 之後重試，因此不會重複發文。
+    """
+    if job.request_ref is None:
+        return await attempt(job)
+    try:
+        adapter = get_adapter(job.platform)
+        credential = decrypt_credential(job.credential_encrypted)
+        timeout = get_settings().platform_call_timeout_seconds
+        check = await _safe_check(adapter, credential, job.request_ref, timeout)
+    except Exception:
+        check = CheckResult(CheckStatus.UNKNOWN)
+    if check.status == CheckStatus.PUBLISHED:
+        return check.published or Published()
+    if check.status == CheckStatus.READY:
+        return await attempt(job, job.request_ref)
+    return await attempt(job)  # 新的 container 會取代舊的參照
 
 
 async def attempt(job: Job, request_ref: str | None = None) -> Outcome:
@@ -191,10 +215,19 @@ async def _safe_check(
 # ---------- 資料庫（同步，短交易） ----------
 
 
+def lease_seconds() -> float:
+    """一次嘗試最久會持續多久（D-01 的租約長度）。
+
+    單筆總時限（180 秒）只管建立與等待 container；時限到之前開始的發文動作與之後的確認各還要一次呼叫，
+    再留一次呼叫的餘裕：180 + 3 × 30 = 270 秒，仍小於逾時恢復的 10 分鐘門檻。
+    """
+    settings = get_settings()
+    return settings.publish_record_limit_seconds + 3 * settings.platform_call_timeout_seconds
+
+
 def lease_is_free(attempt_started_at, now) -> bool:
-    """這一筆是否沒有人在處理：從沒開始過，或上一次嘗試已超過單筆總時限（D-01、D-02）。"""
-    limit = timedelta(seconds=get_settings().publish_record_limit_seconds)
-    return attempt_started_at is None or attempt_started_at <= now - limit
+    """這一筆是否沒有人在處理：從沒開始過，或上一次嘗試一定已經結束（D-01、D-02）。"""
+    return attempt_started_at is None or attempt_started_at <= now - timedelta(seconds=lease_seconds())
 
 
 def _load_jobs(post_id: int) -> list[Job]:
@@ -220,6 +253,7 @@ def job_for(record, post) -> Job:
         platform=account.platform,
         credential_encrypted=bytes(account.credential_encrypted),
         content=PostContent(text=post.content),
+        request_ref=record.platform_request_ref,
     )
 
 

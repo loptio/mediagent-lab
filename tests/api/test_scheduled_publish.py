@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.core import clock, models
 from app.core.config import get_settings
 from app.core.enums import AuditAction, AuthStatus, Platform, UserStatus
-from app.m5_publishing import scheduler
+from app.m5_publishing import engine, scheduler
 from tests.api.helpers import (
     API,
     create_post_with_targets,
@@ -181,3 +181,27 @@ def test_scheduler_tick_publishes_due_posts(client, db, mock_platforms):
 
     assert post_of(client, post_id)["status"] == "PUBLISHED"
     assert [len(adapter.received) for adapter in mock_platforms.values()] == [1, 1, 1]
+
+
+def test_due_posts_are_published_concurrently(client, db, monkeypatch):
+    """同一時間到期的多則貼文同時發佈：一則很慢，不可以拖住其他貼文。"""
+    _, accounts, first = scheduled_post(client, db, ("discord",))
+    second = create_post_with_targets(client, login(client, "pr@club.tw"), [accounts["threads"].id])
+    client.put(
+        f"{API}/posts/{second}/schedule",
+        json={"scheduled_at": "2026-10-06T12:00:00+08:00"},
+        headers=login(client, "pr@club.tw"),
+    )
+    clock.set_fixed(DUE)
+    events = []
+
+    async def slow_run_post(post_id, actor_id=None, mode=None):
+        events.append(("start", post_id))
+        await asyncio.sleep(0.05)
+        events.append(("end", post_id))
+
+    monkeypatch.setattr(engine, "run_post", slow_run_post)
+
+    assert publish_due(client).json() == {"started": 2}
+    assert [kind for kind, _ in events] == ["start", "start", "end", "end"]
+    assert {post_id for _, post_id in events} == {first, second}
