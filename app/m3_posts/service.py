@@ -110,6 +110,7 @@ def update_post(db: Session, user: UserAccount, post_id: int, content: str) -> P
         raise DomainError(422, "CONTENT_EMPTY", "貼文文字不可為空白")
     post.content = content
     if post.status == PostStatus.SCHEDULED:
+        # BR-24：以新內容檢查發佈限制（BR-02、05、07、08），包含目標的授權狀態。
         # 不符合時拋出錯誤，交易不會 commit，內容維持原樣
         publish_rules.check(post, repository.targets_of(db, [post.id])[post.id], clock.now())
     db.commit()

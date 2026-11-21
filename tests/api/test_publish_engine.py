@@ -320,3 +320,30 @@ def test_finalize_server_error_stays_failed_when_nothing_was_published(client, d
     record = records_by_account(client, headers, post_id)["ntu_guitar_threads"]
     assert (record["status"], record["failure_reason"]) == ("FAILED", "PLATFORM_UNAVAILABLE")
     assert mock_platforms[Platform.THREADS].received == []
+
+
+def test_platform_error_message_never_stores_the_credential(client, db, mock_platforms):
+    """Adapter 回報的錯誤訊息若夾帶存取憑證，寫入資料庫前要濾掉（NFR-02，多一層保護）。"""
+    from app.core import crypto
+
+    _, accounts = seed_club(db)
+    threads = accounts["threads"]
+    token, version = crypto.encrypt_credential(
+        {"account_name": "ntu_guitar_threads", "access_token": "th-secret-token-123"}
+    )
+    threads.credential_encrypted, threads.credential_key_version = token, version
+    db.commit()
+    mock_platforms[Platform.THREADS].fail(
+        "ntu_guitar_threads",
+        FailureReason.PLATFORM_UNAVAILABLE,
+        "500 upstream error, token=th-secret-token-123",
+    )
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [threads.id])
+
+    publish(client, headers, post_id)
+
+    db.expire_all()
+    message = db.scalar(select(models.PublishRecord.platform_error_message))
+    assert message is not None and "th-secret-token-123" not in message
+    assert "500 upstream error" in message

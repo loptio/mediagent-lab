@@ -30,7 +30,7 @@ class WebhookRelink(BaseModel):
 
 
 class OAuthStart(BaseModel):
-    """開始平台授權流程。重新連結（帶 platform_account_id）尚未實作。"""
+    """開始平台授權流程；帶 platform_account_id 時是重新連結那個平台帳號。"""
 
     # 文件頁預填的範例：不帶 platform_account_id，否則會被當成重新連結
     model_config = {"json_schema_extra": {"examples": [{"platform": "threads"}]}}

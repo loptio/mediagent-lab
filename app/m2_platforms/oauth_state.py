@@ -1,7 +1,7 @@
 """OAuth state：後端簽章的短效 Token，用來確認平台導回的請求確實是某位管理員發起的。
 
 回呼端點沒有登入標頭（是平台把瀏覽器導回來的），身分只能靠這個 state 確認，
-所以必須簽章、必須短效，內容只放管理員 ID、平台與模式。
+所以必須簽章、必須短效，內容只放管理員 ID、平台，以及重新連結時的平台帳號 ID。
 """
 
 import secrets
@@ -22,6 +22,7 @@ _PURPOSE = "oauth-link"
 class OAuthState:
     admin_id: int
     platform: str
+    platform_account_id: int | None = None  # 有值時是重新連結這個平台帳號
 
 
 def _secret() -> str:
@@ -29,11 +30,12 @@ def _secret() -> str:
     return settings.oauth_state_secret or settings.jwt_secret
 
 
-def issue_state(admin_id: int, platform: str) -> str:
+def issue_state(admin_id: int, platform: str, platform_account_id: int | None = None) -> str:
     expires_at = clock.now() + timedelta(minutes=get_settings().oauth_state_minutes)
     payload = {
         "sub": str(admin_id),
         "platform": str(platform),
+        "account": platform_account_id,
         "purpose": _PURPOSE,
         "nonce": secrets.token_urlsafe(8),
         "exp": int(expires_at.timestamp()),
@@ -51,7 +53,12 @@ def read_state(token: str) -> OAuthState:
         )
         if payload.get("purpose") != _PURPOSE:
             raise OAuthFailed("state was not issued for linking")
-        state = OAuthState(admin_id=int(payload["sub"]), platform=str(payload["platform"]))
+        account = payload.get("account")
+        state = OAuthState(
+            admin_id=int(payload["sub"]),
+            platform=str(payload["platform"]),
+            platform_account_id=int(account) if account is not None else None,
+        )
         expires_at = int(payload["exp"])
     except (jwt.InvalidTokenError, ValueError, TypeError) as exc:
         raise OAuthFailed("state is invalid") from exc

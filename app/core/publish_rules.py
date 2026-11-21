@@ -35,6 +35,14 @@ def check(post: Post, accounts: list[PlatformAccount], now: datetime) -> None:
             {"accounts": invalid},
         )
 
+    check_text(post, accounts)
+
+
+def check_text(post: Post, accounts: list[PlatformAccount]) -> None:
+    """只檢查文字（BR-01、BR-02）：修改已排程貼文的內容時用，不因目標的授權狀態擋住改字。"""
+    if not post.content.strip():
+        raise DomainError(422, "CONTENT_EMPTY", "貼文文字不可為空白")
+
     # 各平台依自己的定義計算字數；先回報上限最嚴格的平台
     def text_limit(account: PlatformAccount) -> int:
         return get_adapter(account.platform).capabilities.max_text_length

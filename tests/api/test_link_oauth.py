@@ -68,13 +68,13 @@ def test_start_requires_admin(client, db, mock_platforms):
     assert (response.status_code, response.json()["code"]) == (403, "FORBIDDEN")
 
 
-def test_start_rejects_discord_instagram_and_relink(client, db):
+def test_start_rejects_discord(client, db):
     seed_club(db)
     admin = login(client, "president@club.tw")
 
-    for body in ({"platform": "discord"}, {"platform": "instagram"}, {"platform_account_id": 1}):
-        response = start(client, admin, **body)
-        assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR"), body
+    response = start(client, admin, platform="discord")
+
+    assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR")
 
 
 def test_callback_links_account(client, db, mock_platforms):

@@ -69,7 +69,7 @@ def remove_account(
 @router.post(
     "/oauth-authorizations",
     response_model=OAuthStarted,
-    summary="開始平台授權流程（Threads）",
+    summary="開始平台授權流程（連結、重新連結 Threads／Instagram）",
 )
 def start_oauth(
     data: OAuthStart,
@@ -95,6 +95,11 @@ def oauth_callback(
 
 _RESULT_MESSAGES = {
     service.RESULT_LINKED: ("連結成功", "平台帳號已經連結，可以關閉這個分頁。"),
+    service.RESULT_RELINKED: ("重新連結成功", "平台帳號的授權已經更新，可以關閉這個分頁。"),
+    service.RESULT_ID_MISMATCH: (
+        "不是同一個帳號",
+        "授權的是另一個平台帳號，原本的連結沒有改變。請用原本的帳號重新授權。",
+    ),
     service.RESULT_AUTH_FAILED: ("授權失敗", "沒有完成平台授權，帳號沒有被連結。請回到系統重新操作一次。"),
     service.RESULT_UNAVAILABLE: ("暫時無法驗證", "目前連不上平台，帳號沒有被連結。請稍後再試一次。"),
     service.RESULT_NAME_TAKEN: ("帳號已經連結過", "系統中已有相同名稱的平台帳號，沒有重複建立。"),

@@ -168,3 +168,19 @@ def test_deleted_scheduled_post_is_not_published(client, db, mock_platforms):
 
     assert response.json() == {"started": 0}
     assert mock_platforms[Platform.DISCORD].received == []
+
+
+def test_editing_scheduled_post_rechecks_targets(client, db):
+    """BR-24：修改已排程貼文的內容時檢查 BR-02、05、07、08；目標授權在排程後到期時拒絕這次修改。"""
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["discord"].id, accounts["threads"].id])
+    schedule(client, headers, post_id)
+    db.get(models.PlatformAccount, accounts["threads"].id).auth_expires_at = BEFORE
+    db.commit()
+
+    response = edit(client, headers, post_id, "社課改到 202 教室")
+
+    assert (response.status_code, response.json()["code"]) == (422, "TARGET_AUTH_INVALID")
+    db.expire_all()
+    assert db.get(models.Post, post_id).content != "社課改到 202 教室"
