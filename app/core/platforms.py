@@ -204,11 +204,17 @@ def mark_auth_invalid(db: Session, account_id: int) -> None:
 # ---------- MockAdapter（NFR-04：不連真實平台也能測試） ----------
 
 
+# E2E 測試專用：帳號名稱以這個字首開頭時，第一次發佈回報「平台暫時無法連線」，之後成功。
+# 只存在於 MockAdapter（PLATFORM_MODE=mock），真實平台的 Adapter 不受影響。
+MOCK_FAIL_ONCE_PREFIX = "e2e-fail-once-"
+
+
 class MockAdapter:
     """模擬平台。以憑證中的 account_name 辨認帳號，可設定每個帳號的行為。
 
     預設行為：begin 成功 → check 回 READY → finalize 成功。
     只有成功執行 finalize 的貼文才算「平台收到」（記錄在 received）。
+    帳號名稱以 MOCK_FAIL_ONCE_PREFIX 開頭時，第一次 begin 回報平台暫時無法連線（E2E 的例外情境）。
     """
 
     def __init__(self, platform: Platform) -> None:
@@ -227,6 +233,7 @@ class MockAdapter:
         self._oauth_account: OAuthAccount | None = None
         self._oauth_failure: Exception | None = None
         self.exchanged: list[tuple[str, str]] = []
+        self._failed_once: set[str] = set()
 
     # --- 測試用的設定 ---
 
@@ -283,10 +290,13 @@ class MockAdapter:
         """離線開發用：不連線，直接回傳假的識別資料。"""
         return {"webhook_id": "0", "guild_id": "0", "channel_id": "0"}
 
-    async def begin(self, credential: Credential, content: PostContent) -> Started:
+    async def begin(self, credential: Credential, content: PostContent) -> Started | Failed:
         name = credential["account_name"]
         if name in self._errors:
             raise self._errors[name]
+        if name.startswith(MOCK_FAIL_ONCE_PREFIX) and name not in self._failed_once:
+            self._failed_once.add(name)
+            return Failed(FailureReason.PLATFORM_UNAVAILABLE, "mock: platform temporarily unavailable")
         if name in self._hanging:
             await asyncio.Event().wait()
         self._counter += 1

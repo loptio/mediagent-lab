@@ -1,0 +1,31 @@
+# E2E 測試環境：疊在根目錄的 docker-compose.yml 上，用獨立的專案名稱與連接埠，不影響本機開發中的服務。
+#   pnpm stack:up   （等同 docker compose -p mediagent-e2e -f ../docker-compose.yml -f docker-compose.e2e.yml up -d --build --wait）
+# 平台一律使用 MockAdapter：就算本機有 .env（含真實平台設定），這裡的 PLATFORM_MODE=mock 也會覆蓋它，絕不連到真實平台。
+services:
+  db:
+    # 測試資料只透過 api 容器寫入，不需要對外開放資料庫
+    ports: !reset []
+
+  api:
+    ports: !override
+      - "127.0.0.1:18100:8000"
+    environment:
+      PLATFORM_MODE: mock
+      # 排程到期由測試呼叫 /internal/publish-due 觸發，關掉服務內的排程迴圈避免時間不確定
+      SCHEDULER_ENABLED: "0"
+      CRON_SECRET: e2e-cron-secret
+      # 只供測試使用的金鑰；沒有任何真實憑證
+      CREDENTIAL_ENCRYPTION_KEYS: "BHzjmEbdf-XolgM7rTF-XQqpcc3BzqS3kYFGbqPGW5o="
+      # 目標含 Threads、Instagram 時，後端要求圖片網址是 https；由下面的 Caddy 提供
+      MEDIA_BASE_URL: https://localhost:18443/media
+      OAUTH_REDIRECT_BASE_URL: http://localhost:18100
+      FRONTEND_ORIGIN: http://localhost:18100
+      # 所有請求都從 Docker 閘道進來、共用同一個登入次數額度；測試會登入很多次
+      LOGIN_ATTEMPTS_PER_MINUTE: "1000"
+
+  https:
+    # 根目錄的設定只在 oauth profile 啟動；E2E 一律啟動，提供 https 圖片網址
+    profiles: !reset []
+    command: caddy reverse-proxy --from localhost:18443 --to api:8000
+    ports: !override
+      - "127.0.0.1:18443:18443"

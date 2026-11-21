@@ -1,0 +1,20 @@
+{
+  "name": "mediagent-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "stack:up": "docker compose -p mediagent-e2e -f ../docker-compose.yml -f docker-compose.e2e.yml up -d --build --wait",
+    "stack:down": "docker compose -p mediagent-e2e -f ../docker-compose.yml -f docker-compose.e2e.yml down -v",
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "^24.19.2"
+  }
+}
