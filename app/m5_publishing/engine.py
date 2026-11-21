@@ -29,6 +29,7 @@ from app.core.enums import (
     HistoryReason,
     PostStatus,
     RecordStatus,
+    SkipReason,
     TargetResultStatus,
     TargetType,
 )
@@ -249,7 +250,7 @@ def _conclude(post_id: int, actor_id: int | None, mode: RunMode, ran_ids: set[in
 
         audit.write(
             db,
-            action=AuditAction.POST_PUBLISH,
+            action=AuditAction.PUBLISH_RETRY if mode == RunMode.RETRY else AuditAction.POST_PUBLISH,
             actor=db.get(UserAccount, actor_id) if actor_id and not by_system else None,
             target_type=TargetType.POST,
             target_id=post.id,
@@ -258,15 +259,31 @@ def _conclude(post_id: int, actor_id: int | None, mode: RunMode, ran_ids: set[in
             scheduled_by=post.scheduled_by if by_system else None,
             post_creator_id=post.creator_id if by_system else None,
             target_results=[
-                {
-                    "platform_account_id": r.platform_account_id,
-                    "status": (
-                        TargetResultStatus.SUCCEEDED
-                        if r.status == RecordStatus.SUCCEEDED
-                        else TargetResultStatus.FAILED
-                    ),
-                    "failure_reason": r.failure_reason,
-                }
+                _not_retried(r) if mode == RunMode.RETRY and r.id not in ran_ids else _target_result(r)
                 for r in records
             ],
         )
+
+
+def _target_result(record) -> dict:
+    succeeded = record.status == RecordStatus.SUCCEEDED
+    return {
+        "platform_account_id": record.platform_account_id,
+        "status": TargetResultStatus.SUCCEEDED if succeeded else TargetResultStatus.FAILED,
+        "failure_reason": record.failure_reason,
+    }
+
+
+def _not_retried(record) -> dict:
+    """重試的稽核列出全部目標；這次沒有重送的標示原因（BR-34）。"""
+    if record.status == RecordStatus.SUCCEEDED:
+        skip = SkipReason.ALREADY_SUCCEEDED
+    elif record.platform_account.removed:
+        skip = SkipReason.REMOVED_SKIPPED
+    else:
+        skip = SkipReason.AUTH_INVALID_SKIPPED
+    return {
+        "platform_account_id": record.platform_account_id,
+        "status": TargetResultStatus.NOT_RETRIED,
+        "skip_reason": skip,
+    }
