@@ -1,0 +1,48 @@
+# Render Blueprint：在 Render 後台選「New → Blueprint」並指向這個 repo，就會依這份設定建立服務。
+# 前後端同一個 Docker 映像檔、同一個網址（foundation-plan D-06）；容器啟動時自動執行 migration。
+# sync: false 的值在建立時由你在 Render 後台填入，不會寫進 repo。步驟見 docs/deploy.md。
+services:
+  - type: web
+    name: mediagent-lab
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Neon 的連線字串（postgresql://…?sslmode=require），程式會自動換成 psycopg 驅動
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OAUTH_STATE_SECRET
+        generateValue: true
+      # 外部定時任務呼叫 /api/v1/internal/* 時放在 X-Cron-Secret 標頭
+      - key: CRON_SECRET
+        generateValue: true
+      # 平台憑證加密金鑰（Fernet）；產生方式見 docs/deploy.md
+      - key: CREDENTIAL_ENCRYPTION_KEYS
+        sync: false
+      # 本服務的網址，例如 https://mediagent-lab.onrender.com
+      - key: OAUTH_REDIRECT_BASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      # 圖片存在 Neon 的 media_blob 表，由本服務的 /media 提供（例如 https://mediagent-lab.onrender.com/media）
+      - key: MEDIA_STORAGE_BACKEND
+        value: db
+      - key: MEDIA_BASE_URL
+        sync: false
+      - key: THREADS_APP_ID
+        sync: false
+      - key: THREADS_APP_SECRET
+        sync: false
+      # Render 前面有一層反向代理：從 X-Forwarded-For 最右邊取得用戶端 IP（登入限流用）
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
+      - key: PLATFORM_MODE
+        value: real
+      - key: DEV_MODE
+        value: "0"
+      - key: SCHEDULER_ENABLED
+        value: "1"

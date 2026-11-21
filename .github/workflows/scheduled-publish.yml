@@ -1,0 +1,35 @@
+# 排程發佈的備援觸發（foundation-plan D-07 第 3 層）。
+# 主要靠服務內每分鐘的檢查；免費方案閒置會休眠，請另外用外部定時服務（docs/deploy.md）每 5 分鐘呼叫，
+# 這裡每小時再補一次，並可以手動執行。私有 repo 的 Actions 有每月免費分鐘數，所以不設成每 5 分鐘。
+name: Scheduled publish (backup)
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    name: Trigger publish-due and publish-recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APP_URL: ${{ secrets.APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Skip when the deployment is not configured
+        if: env.APP_URL == '' || env.CRON_SECRET == ''
+        run: echo "APP_URL 或 CRON_SECRET 尚未設定，略過"
+      - name: Publish due posts
+        if: env.APP_URL != '' && env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 120 -X POST \
+            -H "X-Cron-Secret: ${CRON_SECRET}" "${APP_URL}/api/v1/internal/publish-due"
+      - name: Recover stale publishing
+        if: env.APP_URL != '' && env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 240 -X POST \
+            -H "X-Cron-Secret: ${CRON_SECRET}" "${APP_URL}/api/v1/internal/publish-recovery"
