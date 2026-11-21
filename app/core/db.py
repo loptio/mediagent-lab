@@ -12,7 +12,8 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
 
-engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+# hide_parameters：資料庫錯誤會被寫進 Log，參數裡可能有密碼雜湊或加密憑證，不可以一起印出（NFR-02）
+engine = create_engine(get_settings().database_url, pool_pre_ping=True, hide_parameters=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

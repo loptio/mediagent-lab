@@ -21,6 +21,12 @@ def get_active(db: Session, post_id: int) -> Post | None:
     return db.scalar(stmt)
 
 
+def get_active_for_update(db: Session, post_id: int) -> Post | None:
+    """鎖定未刪除的貼文；修改、刪除前都要先鎖定，與排程發佈的認領互斥（NFR-11）。"""
+    stmt = select(Post).where(Post.id == post_id, Post.deleted_at.is_(None)).with_for_update()
+    return db.scalar(stmt)
+
+
 def count(db: Session, status: str | None) -> int:
     stmt = select(func.count()).select_from(Post).where(Post.deleted_at.is_(None))
     if status:

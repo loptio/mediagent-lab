@@ -7,6 +7,10 @@ class PostCreate(BaseModel):
     content: str
 
 
+class PostUpdate(BaseModel):
+    content: str
+
+
 class UserRef(BaseModel):
     id: int
     name: str

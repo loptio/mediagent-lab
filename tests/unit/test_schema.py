@@ -84,3 +84,15 @@ def test_event_seq_is_shared_across_event_tables(db):
     db.refresh(event)
 
     assert event.event_seq == audit.event_seq + 1
+
+
+def test_database_errors_do_not_include_query_parameters():
+    """資料庫錯誤會被寫進 Log；參數（例如密碼雜湊、憑證）不可以出現在錯誤訊息中。"""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.core.db import engine
+
+    with pytest.raises(DBAPIError) as error, engine.connect() as conn:
+        conn.execute(text("SELECT CAST(:secret AS text), 1 / 0"), {"secret": "s3cret-hash-value"})
+
+    assert "s3cret-hash-value" not in str(error.value)
