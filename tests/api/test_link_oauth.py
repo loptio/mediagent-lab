@@ -234,3 +234,41 @@ def test_threads_link_and_publish_end_to_end(client, db, monkeypatch):
         "POST /v1.0/17841/threads", "GET /v1.0/container-1",
         "POST /v1.0/17841/threads_publish", "GET /v1.0/media-9",
     ]
+
+
+def test_callback_when_platform_is_unreachable_reports_temporary_failure(client, db, mock_platforms):
+    """平台連不上或回 5xx：不是「授權失敗」，而是「暫時無法驗證」（需求 4.5.2、BR-37）。"""
+    state = issue_state_via_api(client, db)
+    admin_id = db.scalar(select(models.UserAccount.id).where(models.UserAccount.role == "admin"))
+    mock_platforms[Platform.THREADS].oauth_unavailable()
+
+    response = callback(client, code="some-code", state=state)
+
+    assert result_of(response) == "VERIFICATION_UNAVAILABLE"
+    assert "mock_threads" not in threads_accounts(db)
+    assert auth_events(db) == [("LINK_FAILED", "threads", None, "VERIFICATION_UNAVAILABLE", admin_id)]
+    assert "暫時無法驗證" in client.get(RESULT, params={"result": "VERIFICATION_UNAVAILABLE"}).text
+
+
+def test_exchange_failure_reason_is_logged_without_the_code(client, db, mock_platforms, caplog):
+    """換不到憑證時，平台回覆的原因要留在 Log 供排查；授權碼本身不可以出現。"""
+    state = issue_state_via_api(client, db)
+    mock_platforms[Platform.THREADS].oauth_fail("redirect_uri does not match (code SECRET-CODE-123)")
+
+    with caplog.at_level("WARNING", logger="mediagent.platforms"):
+        response = callback(client, code="SECRET-CODE-123", state=state)
+
+    assert result_of(response) == "PLATFORM_AUTH_FAILED"
+    assert "redirect_uri does not match" in caplog.text
+    assert "SECRET-CODE-123" not in caplog.text
+    assert state not in caplog.text
+
+
+def test_denied_authorization_is_logged_with_the_platform_reason(client, db, mock_platforms, caplog):
+    state = issue_state_via_api(client, db)
+
+    with caplog.at_level("WARNING", logger="mediagent.platforms"):
+        callback(client, state=state, error="access_denied", error_reason="user_denied")
+
+    assert "access_denied" in caplog.text
+    assert state not in caplog.text

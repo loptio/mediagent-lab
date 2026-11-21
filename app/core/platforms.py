@@ -212,7 +212,7 @@ class MockAdapter:
         self._counter = 0
         self.received: list[tuple[str, PostContent]] = []
         self._oauth_account: OAuthAccount | None = None
-        self._oauth_fails = False
+        self._oauth_failure: Exception | None = None
         self.exchanged: list[tuple[str, str]] = []
 
     # --- 測試用的設定 ---
@@ -237,8 +237,12 @@ class MockAdapter:
     def oauth_account(self, account: OAuthAccount) -> None:
         self._oauth_account = account
 
-    def oauth_fail(self) -> None:
-        self._oauth_fails = True
+    def oauth_fail(self, message: str = "mock platform rejected the authorization code") -> None:
+        self._oauth_failure = OAuthFailed(message)
+
+    def oauth_unavailable(self) -> None:
+        """模擬平台連不上或回 5xx：無法確認授權是否有效。"""
+        self._oauth_failure = VerificationUnavailable()
 
     # --- OAuthProvider ---
 
@@ -248,8 +252,8 @@ class MockAdapter:
 
     async def exchange_code(self, code: str, redirect_uri: str) -> OAuthAccount:
         self.exchanged.append((code, redirect_uri))
-        if self._oauth_fails:
-            raise OAuthFailed("mock platform rejected the authorization code")
+        if self._oauth_failure is not None:
+            raise self._oauth_failure
         return self._oauth_account or OAuthAccount(
             platform_user_id="1001",
             account_name=f"mock_{self.platform}",

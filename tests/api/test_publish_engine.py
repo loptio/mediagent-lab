@@ -274,3 +274,49 @@ def test_finalize_reported_as_timeout_is_checked_once(client, db, monkeypatch):
     record = records_by_account(client, headers, post_id)["ntu_guitar_threads"]
     assert (record["status"], record["platform_post_url"]) == ("SUCCEEDED", "https://threads.test/p/9")
     assert SilentAdapter.checks == 2
+
+
+def test_finalize_server_error_is_checked_once(client, db, monkeypatch):
+    """發文動作回了 5xx：平台可能其實已經發出，再查一次狀態，確認已發出就記為成功。"""
+    from app.core.platforms import Failed, Published
+
+    monkeypatch.setattr(get_settings(), "publish_poll_interval_seconds", 0)
+
+    class FlakyAdapter(MockAdapter):
+        checks = 0
+        finalized = False
+
+        async def check(self, credential, request_ref):
+            FlakyAdapter.checks += 1
+            if FlakyAdapter.finalized:
+                return CheckResult(CheckStatus.PUBLISHED, published=Published())
+            return CheckResult(CheckStatus.READY)
+
+        async def finalize(self, credential, request_ref):
+            FlakyAdapter.finalized = True
+            return Failed(FailureReason.PLATFORM_UNAVAILABLE, "HTTP 504")
+
+    platforms.register_adapter(FlakyAdapter(Platform.THREADS))
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["threads"].id])
+
+    publish(client, headers, post_id)
+
+    record = records_by_account(client, headers, post_id)["ntu_guitar_threads"]
+    assert (record["status"], record["failure_reason"]) == ("SUCCEEDED", None)
+    assert FlakyAdapter.checks == 2
+
+
+def test_finalize_server_error_stays_failed_when_nothing_was_published(client, db, mock_platforms):
+    """5xx 之後查詢，平台說還沒發出：維持失敗，原因仍是平台無法使用（不是逾時）。"""
+    mock_platforms[Platform.THREADS].fail("ntu_guitar_threads", FailureReason.PLATFORM_UNAVAILABLE)
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["threads"].id])
+
+    publish(client, headers, post_id)
+
+    record = records_by_account(client, headers, post_id)["ntu_guitar_threads"]
+    assert (record["status"], record["failure_reason"]) == ("FAILED", "PLATFORM_UNAVAILABLE")
+    assert mock_platforms[Platform.THREADS].received == []

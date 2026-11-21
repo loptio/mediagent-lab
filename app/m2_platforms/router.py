@@ -69,6 +69,7 @@ def oauth_callback(
 _RESULT_MESSAGES = {
     service.RESULT_LINKED: ("連結成功", "平台帳號已經連結，可以關閉這個分頁。"),
     service.RESULT_AUTH_FAILED: ("授權失敗", "沒有完成平台授權，帳號沒有被連結。請回到系統重新操作一次。"),
+    service.RESULT_UNAVAILABLE: ("暫時無法驗證", "目前連不上平台，帳號沒有被連結。請稍後再試一次。"),
     service.RESULT_NAME_TAKEN: ("帳號已經連結過", "系統中已有相同名稱的平台帳號，沒有重複建立。"),
 }
 

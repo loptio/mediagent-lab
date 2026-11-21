@@ -3,6 +3,8 @@
 Instagram 的 OAuth 連結、重新連結、移除平台帳號尚未實作。
 """
 
+import logging
+
 from anyio import from_thread
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,8 @@ from . import oauth_state, repository
 from .adapters.discord import is_webhook_url
 from .schemas import PlatformAccountOut
 
+logger = logging.getLogger("mediagent.platforms")
+
 OAUTH_PLATFORMS = (Platform.THREADS, Platform.INSTAGRAM)
 # 目前已經可以用授權流程連結的平台；Instagram 的串接完成後再加入
 OAUTH_ENABLED_PLATFORMS = (Platform.THREADS,)
@@ -42,7 +46,10 @@ OAUTH_CALLBACK_PATH = "/api/v1/platform-accounts/oauth/callback"
 # 授權流程結束後的結果代碼（《API 設計》3.2）
 RESULT_LINKED = "linked"
 RESULT_AUTH_FAILED = "PLATFORM_AUTH_FAILED"
+RESULT_UNAVAILABLE = "VERIFICATION_UNAVAILABLE"
 RESULT_NAME_TAKEN = "PLATFORM_ACCOUNT_NAME_TAKEN"
+
+MAX_LOGGED_REASON_LENGTH = 300
 
 
 def to_out(account: PlatformAccount) -> PlatformAccountOut:
@@ -164,13 +171,25 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
     except OAuthFailed:
         return RESULT_AUTH_FAILED  # 無法確認是誰發起的，不記錄事件，也不呼叫平台
 
+    # 失敗原因要留在 Log 供排查（第一次串接最常見的就是設定錯誤）；授權碼與 state 不可寫入
     account: OAuthAccount | None = None
-    if not error and code:
+    failure = PlatformAuthFailureReason.PLATFORM_AUTH_FAILED
+    if error or not code:
+        logger.warning(
+            "oauth authorization for %s was not granted: %r",
+            issued.platform,
+            (error or "no authorization code")[:MAX_LOGGED_REASON_LENGTH],
+        )
+    else:
         try:
             adapter = get_adapter(issued.platform)
             account = from_thread.run(adapter.exchange_code, code, oauth_redirect_uri())
-        except (OAuthFailed, VerificationUnavailable):
-            account = None
+        except OAuthFailed as exc:
+            reason = str(exc).replace(code, "[redacted]")[:MAX_LOGGED_REASON_LENGTH]
+            logger.warning("oauth code exchange for %s was rejected: %s", issued.platform, reason)
+        except VerificationUnavailable:
+            logger.warning("oauth code exchange for %s could not reach the platform", issued.platform)
+            failure = PlatformAuthFailureReason.VERIFICATION_UNAVAILABLE
 
     admin = db.get(UserAccount, issued.admin_id)
     if (
@@ -180,10 +199,10 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
     ):
         return RESULT_AUTH_FAILED
     if account is None:
-        # 使用者拒絕授權，或授權碼換不到憑證（BR-37）
-        _link_failed(
-            db, admin, None, PlatformAuthFailureReason.PLATFORM_AUTH_FAILED, issued.platform
-        )
+        # 使用者拒絕授權、授權碼換不到憑證，或暫時連不上平台（BR-37）
+        _link_failed(db, admin, None, failure, issued.platform)
+        if failure == PlatformAuthFailureReason.VERIFICATION_UNAVAILABLE:
+            return RESULT_UNAVAILABLE
         return RESULT_AUTH_FAILED
     if repository.name_taken(db, issued.platform, account.account_name):
         return RESULT_NAME_TAKEN  # 資料衝突，不記錄為平台授權事件（需求 4.5.2）

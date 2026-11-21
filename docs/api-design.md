@@ -220,6 +220,7 @@ Request `{"status": "disabled"}` 或 `{"status": "active"}`。停用時同時撤
 | 錯誤（回傳於 `result`） | 情境 | 規則 |
 |---|---|---|
 | `PLATFORM_AUTH_FAILED` | 使用者拒絕授權或平台授權失敗 | BR-37 |
+| `VERIFICATION_UNAVAILABLE` | 暫時連不上平台，無法確認授權（原型新增） | 4.5.2、BR-37 |
 | `PLATFORM_ID_MISMATCH` | 重新連結時平台識別碼不同 | BR-38 |
 | `PLATFORM_ACCOUNT_NAME_TAKEN` | 同平台已有相同帳號名稱的未移除帳號（不記錄平台授權事件） | 4.2、BR-38 |
 

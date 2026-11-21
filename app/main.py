@@ -21,6 +21,22 @@ logging.basicConfig(
 for _noisy_logger in ("httpx", "httpcore"):
     logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
+
+class RedactOAuthQuery(logging.Filter):
+    """uvicorn 的存取紀錄會寫出完整網址；OAuth 回呼的查詢字串含授權碼與 state，一律濾掉（NFR-02）。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn 存取紀錄的參數：(來源位址, 方法, 含查詢字串的路徑, HTTP 版本, 狀態碼)
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            path, has_query, _ = args[2].partition("?")
+            if has_query and "/oauth/" in path:
+                record.args = (*args[:2], f"{path}?[redacted]", *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(RedactOAuthQuery())
+
 app = FastAPI(
     title="mediagent API",
     version="0.1.0",

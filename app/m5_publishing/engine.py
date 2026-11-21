@@ -50,6 +50,9 @@ logger = logging.getLogger("mediagent.publish")
 
 Outcome = Published | Failed
 
+# 發文動作以這些原因失敗時，平台其實可能已經把貼文發出去了（沒有回應、5xx、429 用完重試）
+UNCERTAIN_FINALIZE_FAILURES = (FailureReason.TIMEOUT, FailureReason.PLATFORM_UNAVAILABLE)
+
 
 @dataclass(frozen=True)
 class Job:
@@ -136,9 +139,9 @@ async def _attempt(job: Job) -> Outcome:
         logger.error("adapter %s raised %s in finalize", job.platform, type(exc).__name__)
         return Failed(FailureReason.OTHER, type(exc).__name__)
 
-    if isinstance(result, Failed) and result.reason == FailureReason.TIMEOUT:
-        # 發文動作結果不明（引擎逾時，或 Adapter 回報沒有拿到回應）：
-        # 不重試，只再查一次；確認已發出才記為成功
+    if isinstance(result, Failed) and result.reason in UNCERTAIN_FINALIZE_FAILURES:
+        # 發文動作結果不明（引擎逾時、沒有拿到回應，或平台回了 5xx）：
+        # 不重試，只再查一次；確認已發出才記為成功，否則維持原本的失敗原因
         check = await _safe_check(adapter, credential, request_ref, call_timeout)
         if check.status == CheckStatus.PUBLISHED:
             return check.published or Published()
