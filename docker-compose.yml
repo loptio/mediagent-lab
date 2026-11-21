@@ -47,5 +47,17 @@ services:
       timeout: 3s
       retries: 5
 
+  # 平台授權（OAuth）回呼需要 HTTPS 網址。只有連結 Threads 等平台時才啟動：
+  #   docker compose --profile oauth up -d
+  # Caddy 會用自己簽發的憑證提供 https://localhost:8443，瀏覽器第一次會顯示憑證警告。
+  https:
+    image: caddy:2
+    profiles: ["oauth"]
+    command: caddy reverse-proxy --from localhost:8443 --to api:8000
+    ports:
+      - "127.0.0.1:8443:8443"
+    depends_on:
+      - api
+
 volumes:
   db-data:

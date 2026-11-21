@@ -38,3 +38,11 @@ def test_dev_user_header_authenticates_only_in_dev_mode(client, db, monkeypatch)
 
     assert response.status_code == 200
     assert response.json()["email"] == user.email
+
+
+def test_https_proxy_is_local_only_and_opt_in():
+    # OAuth 回呼用的 HTTPS 代理：只在需要時啟動（profile），而且只綁定本機
+    assert "  https:" in COMPOSE
+    assert 'profiles: ["oauth"]' in COMPOSE
+    assert '"127.0.0.1:8443:8443"' in COMPOSE
+    assert '- "8443:8443"' not in COMPOSE

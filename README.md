@@ -36,6 +36,23 @@ docker compose exec api python -m seeds.seed_dev
 6. `POST /api/v1/posts/{id}/publish-jobs`：`{"type": "immediate"}`，回應 202。
 7. `GET /api/v1/posts/{id}/publish-records`：狀態為 `SUCCEEDED`，並附上 Discord 訊息連結。
 
+### 連結 Threads
+
+Threads 用平台授權（OAuth）連結，需要先在 [Meta 開發者網站](https://developers.facebook.com/) 建立 App（Threads 使用情境，加上 `threads_content_publish` 權限），並把要連結的 Threads 帳號加成 App 的測試者。
+
+1. 在 Meta 後台的 redirect URIs 登記 `https://localhost:8443/api/v1/platform-accounts/oauth/callback`。
+2. 在 `.env` 填入 `THREADS_APP_ID`、`THREADS_APP_SECRET`，以及 `OAUTH_REDIRECT_BASE_URL=https://localhost:8443`。
+3. 連同本機的 HTTPS 代理一起啟動：
+
+```bash
+docker compose --profile oauth up -d
+```
+
+4. 以管理員登入後呼叫 `POST /api/v1/platform-accounts/oauth-authorizations`，內容 `{"platform": "threads"}`。
+5. 用瀏覽器打開回傳的 `authorization_url`，在 Threads 上同意授權。
+6. 瀏覽器會被導回 `https://localhost:8443`。憑證是本機自己簽發的，瀏覽器會顯示警告，選擇繼續前往即可；之後會看到「連結成功」。
+7. 之後就和 Discord 一樣：建立貼文、把目標設為這個 Threads 帳號、立即發佈。
+
 ### 測試
 
 測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
@@ -55,8 +72,9 @@ python -m pytest -q
 | 13 張資料表與第一版 migration、只能新增的稽核表 | 排程、重試、逾時恢復 |
 | 登入（JWT + session）、三級角色 | 帳號管理、登入鎖定、IP 限流 |
 | 建立貼文、貼文列表、設定目標 | 修改與刪除貼文、圖片、預覽 |
-| 三步發佈引擎、發佈紀錄與變更歷程、稽核寫入 | Threads 與 Instagram 的真實串接 |
+| 三步發佈引擎、發佈紀錄與變更歷程、稽核寫入 | Instagram 的串接、重新連結與移除平台帳號 |
 | Discord Webhook 連結與真實發文 | 前端、452 個驗收例子（pytest-bdd） |
+| Threads 授權連結與三步發佈（待真實帳號驗證） | 圖片貼文 |
 
 ## Project Info
 
