@@ -180,3 +180,63 @@ def test_platform_error_message_is_visible_to_admin_only(client, db, mock_platfo
 
     assert "platform_error_message" not in as_publisher
     assert as_admin["platform_error_message"] == "raw platform message"
+
+
+# ---------- 貼文不可以卡在「發佈中」 ----------
+
+
+def test_undecryptable_credential_fails_only_that_target(client, db, mock_platforms):
+    _, accounts = seed_club(db)
+    accounts["instagram"].credential_encrypted = b"not-a-valid-ciphertext"
+    db.commit()
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [a.id for a in accounts.values()])
+
+    assert publish(client, headers, post_id).status_code == 202
+
+    assert client.get(f"{API}/posts/{post_id}", headers=headers).json()["status"] == "PARTIALLY_FAILED"
+    assert outcome(records_by_account(client, headers, post_id)) == {
+        "ntu_guitar_threads": ("SUCCEEDED", None),
+        "ntu_guitar_ig": ("FAILED", "OTHER"),
+        "公告": ("SUCCEEDED", None),
+    }
+    assert mock_platforms[Platform.INSTAGRAM].received == []
+
+
+def test_adapter_returning_an_invalid_result_is_recorded_as_failed(client, db):
+    class BrokenAdapter(MockAdapter):
+        async def finalize(self, credential, request_ref):
+            return None
+
+    platforms.register_adapter(BrokenAdapter(Platform.DISCORD))
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["discord"].id])
+
+    publish(client, headers, post_id)
+
+    assert client.get(f"{API}/posts/{post_id}", headers=headers).json()["status"] == "FAILED"
+    assert outcome(records_by_account(client, headers, post_id))["公告"] == ("FAILED", "OTHER")
+
+
+def test_result_that_cannot_be_stored_still_ends_the_publish(client, db):
+    from app.core.platforms import Failed
+
+    class OddAdapter(MockAdapter):
+        async def finalize(self, credential, request_ref):
+            return Failed("NOT_A_KNOWN_REASON")  # 違反資料庫的 CHECK，寫回會失敗
+
+    platforms.register_adapter(OddAdapter(Platform.DISCORD))
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(
+        client, headers, [accounts["discord"].id, accounts["threads"].id]
+    )
+
+    publish(client, headers, post_id)
+
+    assert client.get(f"{API}/posts/{post_id}", headers=headers).json()["status"] == "PARTIALLY_FAILED"
+    assert outcome(records_by_account(client, headers, post_id)) == {
+        "ntu_guitar_threads": ("SUCCEEDED", None),
+        "公告": ("FAILED", "OTHER"),
+    }

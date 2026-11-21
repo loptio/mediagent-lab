@@ -114,3 +114,19 @@ def test_check_cannot_confirm_anything():
     adapter = DiscordAdapter(transport=httpx.MockTransport(lambda request: httpx.Response(500)))
 
     assert asyncio.run(adapter.check(CREDENTIAL, None)).status == CheckStatus.UNKNOWN
+
+
+def test_begin_refuses_a_stored_url_that_is_not_a_discord_webhook():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"id": "1", "channel_id": "2"})
+
+    adapter = DiscordAdapter(transport=httpx.MockTransport(handler))
+    credential = {**CREDENTIAL, "webhook_url": "http://169.254.169.254/latest/meta-data"}
+
+    result = asyncio.run(adapter.begin(credential, PostContent(text="x")))
+
+    assert isinstance(result, Failed) and result.reason == FailureReason.AUTH_INVALID
+    assert calls == []

@@ -75,6 +75,9 @@ def client(clean_tables):
 @pytest.fixture(autouse=True)
 def mock_platforms():
     """每個測試都使用全新的 MockAdapter，不會連到任何真實平台。"""
+    # 先載入 app：它在第一次匯入時也會註冊 Adapter，必須發生在這裡之前，
+    # 否則這個 fixture 註冊的 MockAdapter 會被蓋掉，測試結果就會跟執行順序有關
+    import app.main  # noqa: F401
     from app.core import platforms
 
     return platforms.register_mock_adapters()

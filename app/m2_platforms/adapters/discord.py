@@ -108,6 +108,9 @@ class DiscordAdapter:
 
     async def begin(self, credential: Credential, content: PostContent) -> Published | Failed:
         webhook_url = credential["webhook_url"]
+        # 發送前再檢查一次：保存的網址若不是官方 Webhook 網址，就不送出任何請求
+        if not is_webhook_url(webhook_url):
+            return Failed(FailureReason.AUTH_INVALID, "stored webhook URL is not a Discord webhook URL")
         try:
             async with self._client() as client:
                 for _ in range(MAX_RATE_LIMIT_RETRIES + 1):

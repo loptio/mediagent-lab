@@ -56,7 +56,8 @@ class Job:
     record_id: int
     account_id: int
     platform: str
-    credential: Credential
+    # 憑證在處理這一筆時才解密：解不開只影響這一個目標，不會連累其他目標
+    credential_encrypted: bytes
     content: PostContent
 
 
@@ -71,25 +72,36 @@ async def run_post(post_id: int, actor_id: int | None = None) -> None:
 
 
 async def _process(job: Job) -> None:
+    """處理一筆發佈紀錄。無論發生什麼事，這一筆最後一定要有結果，貼文才不會卡在發佈中。"""
     try:
         outcome = await _attempt(job)
-    except Exception as exc:  # 引擎自己的錯誤也不能中斷其他平台
-        logger.exception("publish attempt crashed for record %s", job.record_id)
+    except Exception as exc:  # 憑證解不開、引擎自己的錯誤：只影響這一個目標
+        logger.error("publish attempt for record %s raised %s", job.record_id, type(exc).__name__)
         outcome = Failed(FailureReason.OTHER, type(exc).__name__)
+    if not isinstance(outcome, Published | Failed):
+        outcome = Failed(FailureReason.OTHER, "adapter returned an invalid result")
+
     try:
         await run_in_threadpool(_write_back, job, outcome)
-    except Exception:
-        logger.exception("could not write back result for record %s", job.record_id)
+    except Exception as exc:
+        # 結果寫不進去（例如 Adapter 回報了不存在的失敗原因）：改記為「其他」失敗
+        logger.error("result of record %s could not be stored: %s", job.record_id, type(exc).__name__)
+        fallback = Failed(FailureReason.OTHER, "result could not be recorded")
+        try:
+            await run_in_threadpool(_write_back, job, fallback)
+        except Exception:
+            logger.exception("could not record any result for record %s", job.record_id)
 
 
 async def _attempt(job: Job) -> Outcome:
     settings = get_settings()
     adapter = get_adapter(job.platform)
+    credential = decrypt_credential(job.credential_encrypted)
     deadline = time.monotonic() + settings.publish_record_limit_seconds
     call_timeout = settings.platform_call_timeout_seconds
 
     try:
-        started = await asyncio.wait_for(adapter.begin(job.credential, job.content), call_timeout)
+        started = await asyncio.wait_for(adapter.begin(credential, job.content), call_timeout)
     except TimeoutError:
         return Failed(FailureReason.TIMEOUT)
     except Exception as exc:
@@ -104,7 +116,7 @@ async def _attempt(job: Job) -> Outcome:
     await run_in_threadpool(_save_request_ref, job.record_id, request_ref)
 
     while True:
-        check = await _safe_check(adapter, job.credential, request_ref, call_timeout)
+        check = await _safe_check(adapter, credential, request_ref, call_timeout)
         if check.status == CheckStatus.READY:
             break
         if check.status == CheckStatus.PUBLISHED:
@@ -117,10 +129,10 @@ async def _attempt(job: Job) -> Outcome:
         await asyncio.sleep(settings.publish_poll_interval_seconds)
 
     try:
-        return await asyncio.wait_for(adapter.finalize(job.credential, request_ref), call_timeout)
+        return await asyncio.wait_for(adapter.finalize(credential, request_ref), call_timeout)
     except TimeoutError:
         # 發文動作結果不明：不重試，只再查一次；確認已發出才記為成功
-        check = await _safe_check(adapter, job.credential, request_ref, call_timeout)
+        check = await _safe_check(adapter, credential, request_ref, call_timeout)
         if check.status == CheckStatus.PUBLISHED:
             return check.published or Published()
         return Failed(FailureReason.TIMEOUT)
@@ -157,7 +169,7 @@ def _load_jobs(post_id: int) -> list[Job]:
                     record_id=record.id,
                     account_id=account.id,
                     platform=account.platform,
-                    credential=decrypt_credential(account.credential_encrypted),
+                    credential_encrypted=bytes(account.credential_encrypted),
                     content=PostContent(text=post.content),
                 )
             )

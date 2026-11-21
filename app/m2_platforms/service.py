@@ -25,6 +25,7 @@ from app.core.platforms import (
 )
 
 from . import repository
+from .adapters.discord import is_webhook_url
 from .schemas import PlatformAccountOut
 
 OAUTH_PLATFORMS = (Platform.THREADS, Platform.INSTAGRAM)
@@ -67,6 +68,10 @@ def link_webhook_account(
     name = account_name.strip()
     if platform != Platform.DISCORD or not name:
         raise DomainError(400, "VALIDATION_ERROR", "platform 必須是 discord，account_name 不可空白")
+    # 網址格式在這裡就檢查，不依賴註冊的是哪一個 Adapter；不合格的網址不會送出任何請求
+    if not is_webhook_url(webhook_url):
+        _link_failed(db, admin, name, PlatformAuthFailureReason.WEBHOOK_INVALID)
+        raise DomainError(422, "WEBHOOK_INVALID", "Webhook 網址無效，請確認後重新貼上")
     if repository.name_taken(db, Platform.DISCORD, name):
         raise DomainError(409, "PLATFORM_ACCOUNT_NAME_TAKEN", "已有相同名稱的 Discord 平台帳號")
 

@@ -164,3 +164,15 @@ def test_webhook_token_is_never_logged(client, db, discord, caplog):
 
     assert len([r for r in discord.requests if r.method == "POST"]) == 1
     assert TOKEN not in caplog.text
+
+
+def test_link_rejects_bad_url_whichever_adapter_is_registered(client, db):
+    # 沒有使用 discord fixture：此時註冊的是 MockAdapter（離線模式），網址檢查仍然必須生效
+    seed_club(db)
+
+    response = link(
+        client, login(client, "president@club.tw"), webhook_url="http://169.254.169.254/latest"
+    )
+
+    assert (response.status_code, response.json()["code"]) == (422, "WEBHOOK_INVALID")
+    assert "社團公告" not in db.scalars(select(models.PlatformAccount.account_name)).all()
