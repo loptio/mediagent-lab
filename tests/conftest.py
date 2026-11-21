@@ -15,22 +15,54 @@ os.environ["DATABASE_URL"] = TEST_URL
 os.environ["JWT_SECRET"] = "test-only-jwt-secret-0123456789abcdef"
 os.environ["CREDENTIAL_ENCRYPTION_KEYS"] = Fernet.generate_key().decode()
 os.environ["DEV_MODE"] = "0"
+os.environ["PLATFORM_MODE"] = "mock"
 
 
 @pytest.fixture(scope="session", autouse=True)
 def test_database():
+    """每次測試執行都重建測試資料庫，再用 Alembic 建立結構：migration 本身也因此被驗證。"""
     admin = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": TEST_DB}
-        ).scalar()
-        if not exists:
-            conn.execute(text(f'CREATE DATABASE "{TEST_DB}"'))
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)'))
+        conn.execute(text(f'CREATE DATABASE "{TEST_DB}"'))
     admin.dispose()
+
+    from alembic import command
+    from alembic.config import Config
+
+    command.upgrade(Config("alembic.ini"), "head")
+
+
+@pytest.fixture(autouse=True)
+def clean_tables(test_database):
+    """每個測試從空的資料表開始。
+
+    稽核等只能新增的表有觸發器禁止 TRUNCATE，測試清理時暫時以 replica 角色略過觸發器。
+    """
+    from app.core import clock
+    from app.core.db import Base, engine
+
+    tables = ", ".join(f'"{name}"' for name in Base.metadata.tables)
+    with engine.begin() as conn:
+        conn.execute(text("SET session_replication_role = replica"))
+        conn.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
+        conn.execute(text("ALTER SEQUENCE global_event_seq RESTART WITH 1"))
+        conn.execute(text("SET session_replication_role = DEFAULT"))
+    clock.reset()
+    yield
+    clock.reset()
 
 
 @pytest.fixture
-def client(test_database):
+def db(clean_tables):
+    from app.core.db import SessionLocal
+
+    with SessionLocal() as session:
+        yield session
+
+
+@pytest.fixture
+def client(clean_tables):
     from fastapi.testclient import TestClient
 
     from app.main import app
