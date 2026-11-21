@@ -21,6 +21,8 @@ export type PublishJobAccepted = Schemas['PublishJobAccepted']
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResponse>('/auth/login', { email, password } satisfies Schemas['LoginRequest']),
+  /** 用登入時設定的 HttpOnly Cookie 換發 Access Token（不需要帶 body） */
+  refresh: () => api.post<Schemas['TokenRefreshed']>('/auth/refresh'),
   me: () => api.get<CurrentUser>('/auth/me'),
   logout: () => api.post<void>('/auth/logout'),
 }

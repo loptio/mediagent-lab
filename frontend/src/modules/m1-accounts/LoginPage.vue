@@ -15,7 +15,7 @@ const form = reactive({ email: '', password: '' })
 const submitting = ref(false)
 const error = ref('')
 const expired = route.query.expired === '1'
-// 平台授權（OAuth）會整頁離開，回來時記憶體中的登入狀態已不在
+// 平台授權（OAuth）會整頁離開；回來時若無法用 Cookie 恢復登入，才會停在這裡
 const fromOAuth = typeof route.query.redirect === 'string' && route.query.redirect.includes('result=')
 
 const rules: FormRules = {
@@ -59,7 +59,7 @@ async function submit() {
       <el-alert
         v-else-if="expired && !error"
         type="warning"
-        title="登入已逾時，請重新登入"
+        title="登入已失效，請重新登入"
         :closable="false"
         show-icon
         class="alert"

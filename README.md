@@ -78,7 +78,7 @@ docker compose --profile oauth up -d
 
 撰稿者看不到「立即發佈」與「重試」，也不能為草稿設定排程；真正的權限檢查在後端。
 
-Access Token 只放在記憶體：重新整理頁面或 15 分鐘到期後要重新登入（換發 Token 的端點完成後再接上）。
+Access Token 只放在記憶體，Refresh Token 由後端放在 HttpOnly Cookie。Access Token 15 分鐘到期時，前端會自動換發並重送原本的請求；重新整理頁面或從 Threads 授權頁回來時，也會用 Cookie 自動恢復登入。登出、帳號被停用或登入超過 7 天後，才需要重新登入。
 
 **開發**：需要 Node 24（版本見 `frontend/.nvmrc`）。後端照上面用 Docker 啟動，再開 Vite 開發伺服器，它會把 `/api` 轉給 `http://localhost:8000`，改程式會立即更新畫面：
 

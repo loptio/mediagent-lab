@@ -1,4 +1,7 @@
-/** 登入狀態（Pinia）：只存目前使用者與 Access Token，放在記憶體，不寫進 localStorage。 */
+/**
+ * 登入狀態（Pinia）：只存目前使用者與 Access Token，放在記憶體，不寫進 localStorage。
+ * Refresh Token 由後端放在 HttpOnly Cookie，JavaScript 讀不到；需要時呼叫 /auth/refresh 換發。
+ */
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -12,9 +15,8 @@ const ROLE_RANK: Record<Role, number> = { writer: 1, publisher: 2, admin: 3 }
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(null)
   const user = ref<CurrentUser | null>(null)
-  const expiresAt = ref<number>(0)
 
-  const isLoggedIn = computed(() => token.value !== null && Date.now() < expiresAt.value)
+  const isLoggedIn = computed(() => token.value !== null && user.value !== null)
   const role = computed(() => (user.value?.role ?? null) as Role | null)
 
   function hasRole(minimum: Role): boolean {
@@ -25,13 +27,41 @@ export const useAuthStore = defineStore('auth', () => {
     const result = await authApi.login(email, password)
     token.value = result.access_token
     user.value = result.user
-    expiresAt.value = Date.now() + result.expires_in * 1000
+  }
+
+  /** 用 Refresh Token Cookie 換發 Access Token；登出、停用或超過有效期限時回傳 false */
+  async function refresh(): Promise<boolean> {
+    try {
+      const result = await authApi.refresh()
+      token.value = result.access_token
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  let restoring: Promise<boolean> | null = null
+
+  /** 重新整理頁面、或從平台授權頁回來時，記憶體裡沒有登入狀態：用 Cookie 恢復登入 */
+  function restore(): Promise<boolean> {
+    restoring ??= (async () => {
+      if (!(await refresh())) return false
+      try {
+        user.value = await authApi.me()
+        return true
+      } catch {
+        clear()
+        return false
+      }
+    })().finally(() => {
+      restoring = null
+    })
+    return restoring
   }
 
   function clear(): void {
     token.value = null
     user.value = null
-    expiresAt.value = 0
   }
 
   async function logout(): Promise<void> {
@@ -42,5 +72,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, role, isLoggedIn, hasRole, login, logout, clear }
+  return { token, user, role, isLoggedIn, hasRole, login, refresh, restore, logout, clear }
 })

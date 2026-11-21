@@ -65,13 +65,12 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.meta.public) return true
-  if (!auth.isLoggedIn) {
-    const expired = auth.token !== null
-    auth.clear()
-    return { name: 'login', query: { redirect: to.fullPath, ...(expired ? { expired: '1' } : {}) } }
+  // 記憶體裡沒有登入狀態（重新整理頁面、從平台授權頁回來）時，先用 Refresh Token Cookie 恢復
+  if (!auth.isLoggedIn && !(await auth.restore())) {
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
   if (to.meta.minRole && !auth.hasRole(to.meta.minRole)) {
     ElMessage.warning('你的角色沒有權限查看這個頁面')
@@ -84,7 +83,7 @@ router.afterEach((to) => {
   document.title = to.meta.title ? `${to.meta.title}｜mediagent` : 'mediagent 社團貼文同步'
 })
 
-/** API 回傳 401：清除登入狀態，帶著目前頁面導回登入 */
+/** API 回傳 401 且換發 Access Token 也失敗：清除登入狀態，帶著目前頁面導回登入 */
 export function redirectToLogin(): void {
   const auth = useAuthStore()
   auth.clear()
