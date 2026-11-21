@@ -129,16 +129,20 @@ async def _attempt(job: Job) -> Outcome:
         await asyncio.sleep(settings.publish_poll_interval_seconds)
 
     try:
-        return await asyncio.wait_for(adapter.finalize(credential, request_ref), call_timeout)
+        result = await asyncio.wait_for(adapter.finalize(credential, request_ref), call_timeout)
     except TimeoutError:
-        # 發文動作結果不明：不重試，只再查一次；確認已發出才記為成功
-        check = await _safe_check(adapter, credential, request_ref, call_timeout)
-        if check.status == CheckStatus.PUBLISHED:
-            return check.published or Published()
-        return Failed(FailureReason.TIMEOUT)
+        result = Failed(FailureReason.TIMEOUT)
     except Exception as exc:
         logger.error("adapter %s raised %s in finalize", job.platform, type(exc).__name__)
         return Failed(FailureReason.OTHER, type(exc).__name__)
+
+    if isinstance(result, Failed) and result.reason == FailureReason.TIMEOUT:
+        # 發文動作結果不明（引擎逾時，或 Adapter 回報沒有拿到回應）：
+        # 不重試，只再查一次；確認已發出才記為成功
+        check = await _safe_check(adapter, credential, request_ref, call_timeout)
+        if check.status == CheckStatus.PUBLISHED:
+            return check.published or Published()
+    return result
 
 
 async def _safe_check(

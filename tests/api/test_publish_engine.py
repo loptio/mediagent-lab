@@ -240,3 +240,37 @@ def test_result_that_cannot_be_stored_still_ends_the_publish(client, db):
         "ntu_guitar_threads": ("SUCCEEDED", None),
         "公告": ("FAILED", "OTHER"),
     }
+
+
+def test_finalize_reported_as_timeout_is_checked_once(client, db, monkeypatch):
+    """發文動作沒有回應，但平台其實發出去了：再查一次狀態，確認已發出就記為成功。"""
+    from app.core.platforms import Failed, Published
+
+    monkeypatch.setattr(get_settings(), "publish_poll_interval_seconds", 0)
+
+    class SilentAdapter(MockAdapter):
+        checks = 0
+        finalized = False
+
+        async def check(self, credential, request_ref):
+            SilentAdapter.checks += 1
+            if SilentAdapter.finalized:
+                return CheckResult(
+                    CheckStatus.PUBLISHED, published=Published(post_url="https://threads.test/p/9")
+                )
+            return CheckResult(CheckStatus.READY)
+
+        async def finalize(self, credential, request_ref):
+            SilentAdapter.finalized = True
+            return Failed(FailureReason.TIMEOUT, "ReadTimeout")
+
+    platforms.register_adapter(SilentAdapter(Platform.THREADS))
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["threads"].id])
+
+    publish(client, headers, post_id)
+
+    record = records_by_account(client, headers, post_id)["ntu_guitar_threads"]
+    assert (record["status"], record["platform_post_url"]) == ("SUCCEEDED", "https://threads.test/p/9")
+    assert SilentAdapter.checks == 2

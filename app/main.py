@@ -74,11 +74,12 @@ def _register_adapters() -> None:
 
     from .core.enums import Platform
     from .m2_platforms.adapters.discord import DiscordAdapter
+    from .m2_platforms.adapters.threads import ThreadsAdapter
 
     platforms.register_adapter(DiscordAdapter())
-    # Threads、Instagram 的真實 Adapter 尚未實作：先提供內容限制，發佈時一律回報失敗
-    for platform in (Platform.THREADS, Platform.INSTAGRAM):
-        platforms.register_adapter(platforms.UnavailableAdapter(platform))
+    platforms.register_adapter(ThreadsAdapter())
+    # Instagram 的真實 Adapter 尚未實作：先提供內容限制，發佈時一律回報失敗
+    platforms.register_adapter(platforms.UnavailableAdapter(Platform.INSTAGRAM))
 
 
 _include_routers()

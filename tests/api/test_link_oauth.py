@@ -178,3 +178,59 @@ def test_linked_oauth_account_can_publish(client, db, mock_platforms):
 
     assert records_by_account(client, headers, post_id)["mock_threads"]["status"] == "SUCCEEDED"
     assert [name for name, _ in mock_platforms[Platform.THREADS].received] == ["mock_threads"]
+
+
+def test_threads_link_and_publish_end_to_end(client, db, monkeypatch):
+    """用假的 HTTP 傳輸層走完真實的 ThreadsAdapter：授權連結 → 建立 container → 查狀態 → 發佈。"""
+    import httpx
+
+    from app.core import platforms
+    from app.core.config import get_settings
+    from app.m2_platforms.adapters.threads import ThreadsAdapter
+
+    monkeypatch.setattr(get_settings(), "threads_app_id", "9990001")
+    monkeypatch.setattr(get_settings(), "threads_app_secret", "app-secret-value")
+    monkeypatch.setattr(get_settings(), "publish_poll_interval_seconds", 0)
+    calls = []
+
+    def fake_threads(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        calls.append(f"{request.method} {path}")
+        if path == "/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "short", "user_id": 17841})
+        if path == "/access_token":
+            return httpx.Response(200, json={"access_token": "long-lived", "expires_in": 5183944})
+        if path == "/v1.0/me":
+            return httpx.Response(200, json={"id": "17841", "username": "ntu_guitar"})
+        if path == "/v1.0/17841/threads":
+            return httpx.Response(200, json={"id": "container-1"})
+        if path == "/v1.0/container-1":
+            return httpx.Response(200, json={"status": "FINISHED"})
+        if path == "/v1.0/17841/threads_publish":
+            return httpx.Response(200, json={"id": "media-9"})
+        if path == "/v1.0/media-9":
+            return httpx.Response(200, json={"id": "media-9", "permalink": "https://www.threads.com/@ntu_guitar/post/abc"})
+        return httpx.Response(404)
+
+    platforms.register_adapter(ThreadsAdapter(transport=httpx.MockTransport(fake_threads), retry_delay=0))
+    state = issue_state_via_api(client, db)
+
+    assert result_of(callback(client, code="the-code", state=state)) == "linked"
+    account = threads_accounts(db)["ntu_guitar"]
+    assert account.platform_user_id == "17841"
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [account.id], content="本週三社課")
+    assert publish(client, headers, post_id).status_code == 202
+
+    record = records_by_account(client, headers, post_id)["ntu_guitar"]
+    assert (record["status"], record["platform_post_url"]) == (
+        "SUCCEEDED", "https://www.threads.com/@ntu_guitar/post/abc",
+    )
+    assert db.scalars(
+        select(models.PublishRecord.platform_request_ref).where(models.PublishRecord.post_id == post_id)
+    ).one() == "container-1"
+    assert calls == [
+        "POST /oauth/access_token", "GET /access_token", "GET /v1.0/me",
+        "POST /v1.0/17841/threads", "GET /v1.0/container-1",
+        "POST /v1.0/17841/threads_publish", "GET /v1.0/media-9",
+    ]
