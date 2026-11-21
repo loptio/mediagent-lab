@@ -95,5 +95,5 @@ Render 免費方案閒置 15 分鐘會休眠，休眠時服務內的排程檢查
 
 ## 容量與費用
 
-- Neon 免費方案：PostgreSQL 0.5 GB（只放文字資料）、Object Storage 每個專案 5 GB。原圖照上傳的檔案保存（上限 8 MB），以一張 1～3 MB 估算約可存一千多則有圖片的貼文。
+- Neon 免費方案：每個專案 PostgreSQL 1 GB（只放文字資料），Object Storage 另有 5 GB。原圖照上傳的檔案保存（上限 8 MB），以一張 1～3 MB 估算約可存一千多則有圖片的貼文。
 - Render、Neon、cron-job.org 都使用免費方案，不需要信用卡。
