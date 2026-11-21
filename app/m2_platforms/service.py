@@ -1,7 +1,7 @@
-"""M2 平台帳號與串接：查看、以 Webhook 連結與重新連結 Discord、以平台授權（OAuth）連結 Threads、
-移除平台帳號。
+"""M2 平台帳號與串接：查看、以 Webhook 連結與重新連結 Discord、以平台授權（OAuth）連結與重新連結
+Threads、Instagram，以及移除平台帳號。
 
-Instagram 的串接、Threads 與 Instagram 的重新連結尚未實作。
+哪些平台可以用平台授權連結，取決於註冊的 Adapter 有沒有提供授權流程（真實的 Instagram Adapter 尚未實作）。
 """
 
 import logging
@@ -42,12 +42,12 @@ from .schemas import PlatformAccountOut
 logger = logging.getLogger("mediagent.platforms")
 
 OAUTH_PLATFORMS = (Platform.THREADS, Platform.INSTAGRAM)
-# 目前已經可以用授權流程連結的平台；Instagram 的串接完成後再加入
-OAUTH_ENABLED_PLATFORMS = (Platform.THREADS,)
 OAUTH_CALLBACK_PATH = "/api/v1/platform-accounts/oauth/callback"
 
 # 授權流程結束後的結果代碼（《API 設計》3.2）
 RESULT_LINKED = "linked"
+RESULT_RELINKED = "relinked"
+RESULT_ID_MISMATCH = "PLATFORM_ID_MISMATCH"
 RESULT_AUTH_FAILED = "PLATFORM_AUTH_FAILED"
 RESULT_UNAVAILABLE = "VERIFICATION_UNAVAILABLE"
 RESULT_NAME_TAKEN = "PLATFORM_ACCOUNT_NAME_TAKEN"
@@ -75,15 +75,17 @@ def _link_failed(
     account_name: str | None,
     reason: PlatformAuthFailureReason,
     platform: str = Platform.DISCORD,
+    relinking: PlatformAccount | None = None,
 ) -> None:
-    """記錄一筆「連結平台帳號失敗」的平台授權事件。不得包含任何憑證或授權碼。"""
+    """記錄一筆連結（或重新連結）失敗的平台授權事件。不得包含任何憑證或授權碼。"""
     repository.add_auth_event(
         db,
-        event_type=PlatformAuthEventType.LINK_FAILED,
+        event_type=PlatformAuthEventType.RELINK_FAILED if relinking else PlatformAuthEventType.LINK_FAILED,
         platform=platform,
-        account_name=account_name,
+        account_name=relinking.account_name if relinking else account_name,
         failure_reason=reason,
         actor_id=admin.id,
+        platform_account_id=relinking.id if relinking else None,
     )
     db.commit()
 
@@ -218,14 +220,21 @@ def oauth_redirect_uri() -> str:
 def start_oauth(
     db: Session, admin: UserAccount, platform: str, platform_account_id: int | None
 ) -> str:
-    """產生平台的授權網址；前端把瀏覽器導向它，使用者在平台上同意後會被導回 callback。"""
-    if platform_account_id is not None:
-        raise DomainError(400, "VALIDATION_ERROR", "重新連結平台帳號尚未實作")
-    if platform not in OAUTH_ENABLED_PLATFORMS:
-        raise DomainError(400, "VALIDATION_ERROR", "目前只有 Threads 可以用平台授權流程連結")
+    """產生平台的授權網址；前端把瀏覽器導向它，使用者在平台上同意後會被導回 callback。
 
-    adapter = get_adapter(platform)
-    state = oauth_state.issue_state(admin.id, platform)
+    帶 platform_account_id 時是重新連結那個平台帳號（FR-21）。
+    """
+    adapter = get_adapter(platform) if platform in OAUTH_PLATFORMS else None
+    if adapter is None or not hasattr(adapter, "authorization_url"):
+        raise DomainError(400, "VALIDATION_ERROR", "這個平台目前不支援以平台授權連結")
+    if platform_account_id is not None:
+        account = repository.get_active(db, platform_account_id)
+        if account is None:
+            raise not_found("找不到平台帳號")
+        if account.platform != platform:
+            raise DomainError(400, "VALIDATION_ERROR", "平台帳號與指定的平台不同")
+
+    state = oauth_state.issue_state(admin.id, platform, platform_account_id)
     try:
         return adapter.authorization_url(state, oauth_redirect_uri())
     except OAuthFailed:
@@ -272,12 +281,19 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
         or not core_auth.has_role(admin.role, Role.ADMIN)
     ):
         return RESULT_AUTH_FAILED
+    relinking = None
+    if issued.platform_account_id is not None:
+        relinking = repository.get_active(db, issued.platform_account_id, for_update=True)
+        if relinking is None:  # 授權期間被移除
+            return RESULT_AUTH_FAILED
     if account is None:
-        # 使用者拒絕授權、授權碼換不到憑證，或暫時連不上平台（BR-37）
-        _link_failed(db, admin, None, failure, issued.platform)
+        # 使用者拒絕授權、授權碼換不到憑證，或暫時連不上平台（BR-37）；重新連結失敗時保留原有資料
+        _link_failed(db, admin, None, failure, issued.platform, relinking)
         if failure == PlatformAuthFailureReason.VERIFICATION_UNAVAILABLE:
             return RESULT_UNAVAILABLE
         return RESULT_AUTH_FAILED
+    if relinking is not None:
+        return _relink(db, admin, relinking, account)
     if repository.name_taken(db, issued.platform, account.account_name):
         return RESULT_NAME_TAKEN  # 資料衝突，不記錄為平台授權事件（需求 4.5.2）
 
@@ -303,6 +319,36 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
     )
     db.commit()
     return RESULT_LINKED
+
+
+def _relink(db: Session, admin: UserAccount, target: PlatformAccount, account: OAuthAccount) -> str:
+    """重新連結（FR-21、BR-38）：必須是同一個平台帳號；成功時更新憑證、名稱與到期時間，連結者不變。"""
+    if target.platform_user_id and account.platform_user_id != target.platform_user_id:
+        _link_failed(
+            db, admin, None, PlatformAuthFailureReason.PLATFORM_ID_MISMATCH, target.platform, target
+        )
+        return RESULT_ID_MISMATCH
+    if account.account_name != target.account_name and repository.name_taken(
+        db, target.platform, account.account_name
+    ):
+        return RESULT_NAME_TAKEN  # 資料衝突，不記錄為平台授權事件
+
+    token, key_version = encrypt_credential({"account_name": account.account_name, **account.credential})
+    target.credential_encrypted = token
+    target.credential_key_version = key_version
+    target.account_name = account.account_name
+    target.platform_user_id = target.platform_user_id or account.platform_user_id
+    target.auth_expires_at = account.expires_at  # 平台沒有回傳時為空（未知）
+    target.auth_status = AuthStatus.VALID
+    audit.write(
+        db,
+        action=AuditAction.PLATFORM_RELINK,
+        actor=admin,
+        target_type=TargetType.PLATFORM_ACCOUNT,
+        target_id=target.id,
+    )
+    db.commit()
+    return RESULT_RELINKED
 
 
 def oauth_result_url(result: str) -> str:

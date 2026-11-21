@@ -168,3 +168,17 @@ def test_deleted_scheduled_post_is_not_published(client, db, mock_platforms):
 
     assert response.json() == {"started": 0}
     assert mock_platforms[Platform.DISCORD].received == []
+
+
+def test_editing_text_of_scheduled_post_does_not_recheck_targets(client, db):
+    """只改文字時只檢查字數（BR-02）；目標的授權在排程後到期，不應該擋住改錯字。"""
+    _, accounts = seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = create_post_with_targets(client, headers, [accounts["discord"].id, accounts["threads"].id])
+    schedule(client, headers, post_id)
+    db.get(models.PlatformAccount, accounts["threads"].id).auth_expires_at = BEFORE
+    db.commit()
+
+    response = edit(client, headers, post_id, "社課改到 202 教室")
+
+    assert response.status_code == 200, response.text

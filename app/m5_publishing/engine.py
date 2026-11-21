@@ -136,6 +136,8 @@ async def attempt(job: Job, request_ref: str | None = None) -> Outcome:
 
 async def record(job: Job, outcome: Outcome, succeeded: HistoryReason, failed: HistoryReason) -> None:
     """寫回一筆結果；寫不進去時改記為「其他」失敗，紀錄不會一直停在待發佈。"""
+    if isinstance(outcome, Failed) and outcome.message:
+        outcome = Failed(outcome.reason, _without_secrets(job, outcome.message))
     reason = succeeded if isinstance(outcome, Published) else failed
     try:
         await run_in_threadpool(_write_back, job, outcome, reason)
@@ -147,6 +149,25 @@ async def record(job: Job, outcome: Outcome, succeeded: HistoryReason, failed: H
             await run_in_threadpool(_write_back, job, fallback, failed)
         except Exception:
             logger.exception("could not record any result for record %s", job.record_id)
+
+
+MIN_SECRET_LENGTH = 8
+
+
+def _without_secrets(job: Job, message: str) -> str:
+    """平台的原始錯誤訊息只給管理員看，但仍不可夾帶這個帳號的存取憑證（NFR-02）。
+
+    各 Adapter 已經自己濾過；這裡再以憑證裡的每個字串值過濾一次，Adapter 漏掉也不會存進資料庫。
+    """
+    try:
+        credential = decrypt_credential(job.credential_encrypted)
+    except Exception:
+        return message
+    account_name = credential.get("account_name")
+    for value in credential.values():
+        if isinstance(value, str) and len(value) >= MIN_SECRET_LENGTH and value != account_name:
+            message = message.replace(value, "[redacted]")
+    return message
 
 
 async def _attempt(job: Job, request_ref: str | None = None) -> Outcome:
