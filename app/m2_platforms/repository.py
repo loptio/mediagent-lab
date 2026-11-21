@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,8 @@ def create(
     credential_encrypted: bytes,
     credential_key_version: int,
     linked_by: int,
+    platform_user_id: str | None = None,
+    auth_expires_at: datetime | None = None,
 ) -> PlatformAccount:
     account = PlatformAccount(
         platform=platform,
@@ -35,6 +39,8 @@ def create(
         credential_encrypted=credential_encrypted,
         credential_key_version=credential_key_version,
         linked_by=linked_by,
+        platform_user_id=platform_user_id,
+        auth_expires_at=auth_expires_at,
     )
     db.add(account)
     db.flush()
