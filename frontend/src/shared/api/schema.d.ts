@@ -30,8 +30,48 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 登入 */
+        /**
+         * 登入
+         * @description 所有失敗原因都回傳相同的 401；同一個 IP 一分鐘內最多 10 次登入嘗試。
+         */
         post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 換發 Access Token
+         * @description 用登入時設定的 HttpOnly Cookie 換發新的 Access Token；登出、停用或過期後無法換發。
+         */
+        post: operations["refresh_api_v1_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 登出所有裝置 */
+        post: operations["logout_all_api_v1_auth_logout_all_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -116,6 +156,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 調整角色
+         * @description 角色立即生效；最後一位啟用中的管理員不可改成其他角色。
+         */
+        patch: operations["change_role_api_v1_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 解除鎖定
+         * @description 清除連續登入失敗造成的鎖定；不改變帳號的啟用或停用狀態。
+         */
+        delete: operations["unlock_api_v1_users__user_id__lock_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/platform-accounts": {
         parameters: {
             query?: never;
@@ -132,6 +212,46 @@ export interface paths {
          */
         post: operations["link_account_api_v1_platform_accounts_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-accounts/{account_id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 重新連結平台帳號（Discord Webhook）
+         * @description 換成新的 Webhook 網址；驗證失敗時保留原本的設定。選了這個帳號的貼文與既有發佈紀錄都不變。
+         */
+        put: operations["relink_webhook_api_v1_platform_accounts__account_id__credential_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/platform-accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 移除平台帳號
+         * @description 從草稿與已排程貼文的目標中拿掉；它是已排程貼文唯一的目標時，該貼文改回草稿。發佈紀錄保留。
+         */
+        delete: operations["remove_account_api_v1_platform_accounts__account_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -200,6 +320,46 @@ export interface paths {
         patch: operations["update_post_api_v1_posts__post_id__patch"];
         trace?: never;
     };
+    "/api/v1/posts/{post_id}/copies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 複製為新草稿
+         * @description 任何狀態的貼文都可以複製；新草稿沒有目標平台帳號，需要重新選擇。
+         */
+        post: operations["copy_post_api_v1_posts__post_id__copies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/posts/{post_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 預覽貼文
+         * @description 各目標平台的文字、字數與上限；超過上限或授權失效會出現在 warnings。
+         */
+        get: operations["preview_api_v1_posts__post_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts/{post_id}/targets": {
         parameters: {
             query?: never;
@@ -255,6 +415,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/posts/{post_id}/publish-records/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看發佈紀錄的變更歷程 */
+        get: operations["get_history_api_v1_posts__post_id__publish_records_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts/{post_id}/publish-jobs": {
         parameters: {
             query?: never;
@@ -278,14 +455,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查詢稽核紀錄
+         * @description 一般稽核、登入失敗、平台帳號連結失敗合在一起，依時間由新到舊。依操作者篩選時不含登入失敗事件。
+         *
+         *     時間區間含開始、不含結束；沒有時區的時間視為台灣時間。
+         */
+        get: operations["search_api_v1_audit_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AuditItem */
+        AuditItem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "audit";
+            /** Id */
+            id: number;
+            /** Event Seq */
+            event_seq: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Actor Type */
+            actor_type: string;
+            actor: components["schemas"]["Person"] | null;
+            /** Action */
+            action: string;
+            target: components["schemas"]["Target"];
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Target Results */
+            target_results: components["schemas"]["TargetResult"][];
+        };
+        /** EventPage */
+        EventPage: {
+            /** Items */
+            items: (components["schemas"]["AuditItem"] | components["schemas"]["LoginSecurityItem"] | components["schemas"]["PlatformAuthItem"])[];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Total Pages */
+            total_pages: number;
+            /** Has Prev */
+            has_prev: boolean;
+            /** Has Next */
+            has_next: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistoryActor */
+        HistoryActor: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** HistoryItem */
+        HistoryItem: {
+            /** Publish Record Id */
+            publish_record_id: number;
+            /** From Status */
+            from_status: string | null;
+            /** To Status */
+            to_status: string;
+            /**
+             * Changed At
+             * Format: date-time
+             */
+            changed_at: string;
+            /** Actor Type */
+            actor_type: string;
+            actor: components["schemas"]["HistoryActor"] | null;
+            /** Reason */
+            reason: string;
+        };
+        /** HistoryOut */
+        HistoryOut: {
+            /** Post Id */
+            post_id: number;
+            /** Items */
+            items: components["schemas"]["HistoryItem"][];
         };
         /** JobRecord */
         JobRecord: {
@@ -316,6 +594,30 @@ export interface components {
             expires_in: number;
             user: components["schemas"]["UserOut"];
         };
+        /** LoginSecurityItem */
+        LoginSecurityItem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "login_security";
+            /** Id */
+            id: number;
+            /** Event Seq */
+            event_seq: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Event Type */
+            event_type: string;
+            /** Failure Reason */
+            failure_reason: string;
+            /** Attempted Email */
+            attempted_email: string;
+            account: components["schemas"]["Person"] | null;
+        };
         /**
          * OAuthStart
          * @description 開始平台授權流程。重新連結（帶 platform_account_id）尚未實作。
@@ -333,6 +635,15 @@ export interface components {
         OAuthStarted: {
             /** Authorization Url */
             authorization_url: string;
+        };
+        /** Person */
+        Person: {
+            /** Id */
+            id: number;
+            /** Email */
+            email: string;
+            /** Name */
+            name: string;
         };
         /**
          * PlatformAccountCreate
@@ -366,6 +677,40 @@ export interface components {
             auth_status: string;
             /** Auth Expires At */
             auth_expires_at: string | null;
+        };
+        /** PlatformAuthItem */
+        PlatformAuthItem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "platform_auth";
+            /** Id */
+            id: number;
+            /** Event Seq */
+            event_seq: number;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Actor Type
+             * @default user
+             * @constant
+             */
+            actor_type: "user";
+            actor: components["schemas"]["Person"];
+            /** Event Type */
+            event_type: string;
+            /** Platform */
+            platform: string;
+            /** Account Name */
+            account_name: string | null;
+            /** Platform Account Id */
+            platform_account_id: number | null;
+            /** Failure Reason */
+            failure_reason: string;
         };
         /** PostCreate */
         PostCreate: {
@@ -441,6 +786,25 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** PreviewItem */
+        PreviewItem: {
+            platform_account: components["schemas"]["TargetOut"];
+            /** Text */
+            text: string;
+            /** Char Count */
+            char_count: number;
+            /** Char Limit */
+            char_limit: number;
+            /** Image */
+            image?: null;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Items */
+            items: components["schemas"]["PreviewItem"][];
+        };
         /** PublishJobAccepted */
         PublishJobAccepted: {
             /** Post Id */
@@ -505,6 +869,14 @@ export interface components {
             /** Removed */
             removed: boolean;
         };
+        /** RoleUpdate */
+        RoleUpdate: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "publisher" | "writer";
+        };
         /**
          * ScheduleUpdate
          * @description 排程時間以台灣時間輸入；沒有時區時視為台灣時間，以 UTC 儲存。
@@ -519,6 +891,13 @@ export interface components {
              */
             scheduled_at: string;
         };
+        /** Target */
+        Target: {
+            /** Type */
+            type: string;
+            /** Id */
+            id: number;
+        };
         /** TargetOut */
         TargetOut: {
             /** Id */
@@ -529,6 +908,17 @@ export interface components {
             account_name: string;
             /** Auth Status */
             auth_status: string;
+        };
+        /** TargetResult */
+        TargetResult: {
+            /** Platform Account Id */
+            platform_account_id: number;
+            /** Status */
+            status: string;
+            /** Failure Reason */
+            failure_reason: string | null;
+            /** Skip Reason */
+            skip_reason: string | null;
         };
         /** TargetsOut */
         TargetsOut: {
@@ -541,6 +931,18 @@ export interface components {
         TargetsUpdate: {
             /** Platform Account Ids */
             platform_account_ids: number[];
+        };
+        /** TokenRefreshed */
+        TokenRefreshed: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default Bearer
+             */
+            token_type: string;
+            /** Expires In */
+            expires_in: number;
         };
         /**
          * UserCreate
@@ -628,6 +1030,11 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** WebhookRelink */
+        WebhookRelink: {
+            /** Webhook Url */
+            webhook_url: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -687,6 +1094,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    refresh_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenRefreshed"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_all_api_v1_auth_logout_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -816,6 +1270,72 @@ export interface operations {
             };
         };
     };
+    change_role_api_v1_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlock_api_v1_users__user_id__lock_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_accounts_api_v1_platform_accounts_get: {
         parameters: {
             query?: never;
@@ -857,6 +1377,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PlatformAccountOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    relink_webhook_api_v1_platform_accounts__account_id__credential_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookRelink"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_account_api_v1_platform_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1063,6 +1647,68 @@ export interface operations {
             };
         };
     };
+    copy_post_api_v1_posts__post_id__copies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_api_v1_posts__post_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     set_targets_api_v1_posts__post_id__targets_put: {
         parameters: {
             query?: never;
@@ -1195,6 +1841,37 @@ export interface operations {
             };
         };
     };
+    get_history_api_v1_posts__post_id__publish_records_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_publish_job_api_v1_posts__post_id__publish_jobs_post: {
         parameters: {
             query?: never;
@@ -1217,6 +1894,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublishJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_api_v1_audit_events_get: {
+        parameters: {
+            query?: {
+                actor_type?: ("user" | "system") | null;
+                actor_id?: number | null;
+                account_id?: number | null;
+                action?: string | null;
+                from?: string | null;
+                to?: string | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPage"];
                 };
             };
             /** @description Validation Error */
