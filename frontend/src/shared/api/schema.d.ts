@@ -267,7 +267,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 開始平台授權流程（Threads）
+         * 開始平台授權流程（連結、重新連結 Threads／Instagram）
          * @description 回傳平台的授權網址：用瀏覽器打開它，在平台上同意後會自動導回並完成連結。
          */
         post: operations["start_oauth_api_v1_platform_accounts_oauth_authorizations_post"];
@@ -355,6 +355,30 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/posts/{post_id}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 附加圖片
+         * @description 一則貼文一張 JPEG，最多 8,000,000 位元組。比例超出 4:5～1.91:1 時自動從中間裁出 Instagram 版本。
+         */
+        post: operations["attach_image_api_v1_posts__post_id__image_post"];
+        /**
+         * 移除圖片
+         * @description 目標含 Instagram 時不能移除圖片，需先取消選擇 Instagram。
+         */
+        delete: operations["remove_image_api_v1_posts__post_id__image_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -510,6 +534,11 @@ export interface components {
             /** Target Results */
             target_results: components["schemas"]["TargetResult"][];
         };
+        /** Body_attach_image_api_v1_posts__post_id__image_post */
+        Body_attach_image_api_v1_posts__post_id__image_post: {
+            /** File */
+            file: string;
+        };
         /** EventPage */
         EventPage: {
             /** Items */
@@ -564,6 +593,30 @@ export interface components {
             post_id: number;
             /** Items */
             items: components["schemas"]["HistoryItem"][];
+        };
+        /**
+         * ImageOut
+         * @description 原圖與 Instagram 版本（《API 設計》19）。比例已符合時兩者相同，ig_cropped 為 false。
+         */
+        ImageOut: {
+            /** Format */
+            format: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Public Url */
+            public_url: string;
+            /** Ig Public Url */
+            ig_public_url: string;
+            /** Ig Width */
+            ig_width: number;
+            /** Ig Height */
+            ig_height: number;
+            /** Ig Cropped */
+            ig_cropped: boolean;
         };
         /** JobRecord */
         JobRecord: {
@@ -620,7 +673,7 @@ export interface components {
         };
         /**
          * OAuthStart
-         * @description 開始平台授權流程。重新連結（帶 platform_account_id）尚未實作。
+         * @description 開始平台授權流程；帶 platform_account_id 時是重新連結那個平台帳號。
          * @example {
          *       "platform": "threads"
          *     }
@@ -759,8 +812,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Image */
-            image?: null;
+            image: components["schemas"]["ImageOut"] | null;
             /** Targets */
             targets: components["schemas"]["TargetOut"][];
         };
@@ -786,6 +838,17 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** PreviewImage */
+        PreviewImage: {
+            /** Url */
+            url: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Variant */
+            variant: string;
+        };
         /** PreviewItem */
         PreviewItem: {
             platform_account: components["schemas"]["TargetOut"];
@@ -795,8 +858,7 @@ export interface components {
             char_count: number;
             /** Char Limit */
             char_limit: number;
-            /** Image */
-            image?: null;
+            image: components["schemas"]["PreviewImage"] | null;
             /** Warnings */
             warnings: string[];
         };
@@ -1697,6 +1759,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PreviewOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_image_api_v1_posts__post_id__image_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_attach_image_api_v1_posts__post_id__image_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_image_api_v1_posts__post_id__image_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

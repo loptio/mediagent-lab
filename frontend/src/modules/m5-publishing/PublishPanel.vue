@@ -11,6 +11,7 @@ import QueryError from '@/shared/QueryError.vue'
 import StatusTag from '@/shared/StatusTag.vue'
 import { formatTaipei } from '@/shared/time'
 
+import HistoryTimeline from './HistoryTimeline.vue'
 import { planRetry } from './retryWarnings'
 
 const POLL_MS = 3000
@@ -50,6 +51,13 @@ const canPublish = computed(() => auth.hasRole('publisher'))
 const canPublishNow = computed(() => ['DRAFT', 'SCHEDULED'].includes(props.post.status))
 const canRetry = computed(() => ['PARTIALLY_FAILED', 'FAILED'].includes(props.post.status))
 const isAdmin = computed(() => auth.hasRole('admin'))
+// 變更歷程展開時才讀取
+const historyOpen = ref<string[]>([])
+// 發佈結果更新時，變更歷程也跟著更新
+watch(
+  () => recordsQuery.dataUpdatedAt.value,
+  () => void queryClient.invalidateQueries({ queryKey: ['publish-history', props.post.id] }),
+)
 
 const publishMutation = useMutation({
   mutationFn: (type: 'immediate' | 'retry') => postsApi.publish(postId.value, type),
@@ -189,6 +197,12 @@ function skipReason(record: (typeof records.value)[number]) {
       </el-table-column>
     </el-table>
 
+    <el-collapse v-if="records.length" v-model="historyOpen" class="history">
+      <el-collapse-item title="變更歷程" name="history">
+        <HistoryTimeline v-if="historyOpen.includes('history')" :post-id="post.id" :records="records" />
+      </el-collapse-item>
+    </el-collapse>
+
     <el-dialog v-model="retryDialog" title="重試發佈" width="min(520px, 92vw)">
       <p>只會重送下列失敗的平台帳號：</p>
       <ul class="plan-list">
@@ -260,6 +274,10 @@ function skipReason(record: (typeof records.value)[number]) {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   word-break: break-all;
+}
+
+.history {
+  margin-top: 12px;
 }
 
 .plan-list {
