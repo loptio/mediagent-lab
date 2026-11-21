@@ -69,7 +69,7 @@ def remove_account(
 @router.post(
     "/oauth-authorizations",
     response_model=OAuthStarted,
-    summary="開始平台授權流程（Threads）",
+    summary="開始平台授權流程（連結、重新連結 Threads／Instagram）",
 )
 def start_oauth(
     data: OAuthStart,

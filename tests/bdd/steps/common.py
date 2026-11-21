@@ -787,6 +787,12 @@ def then_result_in_order(world, datatable):
 @then(step('查詢結果不包含欄位 "X"'))
 def then_result_without_field(world, a):
     assert all(a not in item for item in items(world))
+    # 不只欄位名稱：任何平台帳號解密後的憑證值都不可以出現在回應裡（NFR-02）
+    world.db.expire_all()
+    for account in world.db.scalars(select(models.PlatformAccount)):
+        for value in crypto.decrypt_credential(account.credential_encrypted).values():
+            if isinstance(value, str) and value != account.account_name:
+                assert value not in world.response.text, f"回應中出現 {account.account_name} 的憑證"
 
 
 @then(step("查詢結果共 (?P<n>\\d+) 筆"))

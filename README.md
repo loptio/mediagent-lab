@@ -108,11 +108,11 @@ pnpm gen:api
 
 測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
 
-`spec/features/` 的 452 個驗收例子由 `tests/bdd/` 以 pytest-bdd 執行（architecture §13）：目前 406 個通過、46 個標為待實作。待實作的原因寫在各 `tests/bdd/test_<功能>.py` 的 `PENDING`：
+`spec/features/` 的 452 個驗收例子由 `tests/bdd/` 以 pytest-bdd 執行（architecture §13）：目前 404 個通過、48 個標為待實作。待實作的原因寫在各 `tests/bdd/test_<功能>.py` 的 `PENDING`：
 
 - 43 個依賴圖片功能（上傳、裁切、物件儲存，以及 Instagram 必須附圖）。
-- 2 個是規格例子本身互相衝突，待小組確認。
-- 1 個是背景重送進行到一半的中間狀態，同步測試無法停在那一刻。
+- 4 個是規格例子本身互相衝突，待小組確認（排程發佈 1、重新連結 1、修改貼文 2）。
+- 1 個是背景重送進行到一半的中間狀態，需要非同步的測試才能觀察。
 
 ```bash
 python -m pip install -r requirements-dev.txt

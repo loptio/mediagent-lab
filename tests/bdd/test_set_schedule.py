@@ -13,7 +13,7 @@ from tests.bdd.steps.common import Result, iso, rows, step  # noqa: F401
 
 # 尚未實作的功能：{"Rule 或 Rule — Example": "原因"}
 PENDING: dict[str, str] = {
-    "前置：目標平台帳號含 Instagram 時，貼文必須附加圖片": "BR-05（Instagram 必須附圖）依賴圖片功能；圖片完成前無法附圖，先不強制",
+    "前置：目標平台帳號含 Instagram 時，貼文必須附加圖片": "BR-05（Instagram 必須附圖）尚未強制：圖片功能完成前無法附圖，強制會讓 Instagram 完全無法使用；圖片完成時一併實作",
 }
 
 scenarios(feature("設定排程"))

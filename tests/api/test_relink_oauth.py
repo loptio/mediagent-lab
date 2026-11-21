@@ -144,3 +144,44 @@ def test_instagram_can_link_when_its_adapter_supports_oauth(client, db, mock_pla
     platforms.register_adapter(platforms.UnavailableAdapter(Platform.INSTAGRAM))
     refused = start(client, admin, "instagram")
     assert (refused.status_code, refused.json()["code"]) == (400, "VALIDATION_ERROR")
+
+
+def test_callback_rejects_an_admin_disabled_after_starting(client, db, mock_platforms):
+    """回呼沒有登入標頭：開始授權之後才被停用或降級的管理員，導回時不可完成連結。"""
+    users, accounts = seed_club(db)
+    threads = linked_threads(db, mock_platforms, users, accounts)
+    before = (threads.account_name, bytes(threads.credential_encrypted), threads.auth_expires_at)
+    mock_platforms[Platform.THREADS].oauth_account(
+        OAuthAccount("th-1001", "renamed", {"access_token": "t"}, None)
+    )
+    response = start(client, login(client, "president@club.tw"), account_id=threads.id)
+    state = parse_qs(urlparse(response.json()["authorization_url"]).query)["state"][0]
+    db.get(models.UserAccount, users["admin"].id).role = "publisher"
+    db.commit()
+
+    redirect = client.get(CALLBACK, params={"code": "c", "state": state}, follow_redirects=False)
+
+    assert parse_qs(urlparse(redirect.headers["location"]).query)["result"] == ["PLATFORM_AUTH_FAILED"]
+    db.expire_all()
+    account = db.get(models.PlatformAccount, threads.id)
+    assert (account.account_name, bytes(account.credential_encrypted), account.auth_expires_at) == before
+    assert auth_events(db) == []
+
+
+def test_relink_restores_an_account_marked_invalid(client, db, mock_platforms):
+    """平台撤銷 Token 後帳號被標示失效（BR-09）；重新連結成功要改回有效。"""
+    users, accounts = seed_club(db)
+    threads = linked_threads(db, mock_platforms, users, accounts)
+    threads.auth_status = "invalid"
+    threads.auth_expires_at = clock.now() + timedelta(days=30)  # 還沒到期，是被撤銷
+    db.commit()
+    mock_platforms[Platform.THREADS].oauth_account(
+        OAuthAccount(
+            "th-1001", "ntu_guitar_threads", {"access_token": "new"}, clock.now() + timedelta(days=60)
+        )
+    )
+
+    assert authorize(client, login(client, "president@club.tw"), account_id=threads.id) == "relinked"
+
+    db.expire_all()
+    assert db.get(models.PlatformAccount, threads.id).auth_status == "valid"
