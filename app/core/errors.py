@@ -26,12 +26,14 @@ class DomainError(Exception):
         code: str,
         message: str,
         detail: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.detail = detail
+        self.headers = headers
 
 
 def not_found(message: str = "找不到資源") -> DomainError:
@@ -66,7 +68,9 @@ def error_response(
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def handle_domain_error(request: Request, exc: DomainError) -> JSONResponse:
-        return error_response(request, exc.status_code, exc.code, exc.message, exc.detail)
+        return error_response(
+            request, exc.status_code, exc.code, exc.message, exc.detail, headers=exc.headers
+        )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(

@@ -7,7 +7,8 @@ from sqlalchemy import create_engine, text
 ADMIN_URL = os.environ.get(
     "TEST_ADMIN_DATABASE_URL", "postgresql+psycopg://mediagent:mediagent@localhost:5432/mediagent"
 )
-TEST_DB = "mediagent_test"
+# 同一台電腦上同時有兩個工作目錄在跑測試時，用 TEST_DATABASE_NAME 分開，避免互相刪除資料庫
+TEST_DB = os.environ.get("TEST_DATABASE_NAME", "mediagent_test")
 TEST_URL = ADMIN_URL.rsplit("/", 1)[0] + f"/{TEST_DB}"
 
 # 必須在匯入 app 之前設定，Settings 只讀一次
@@ -18,6 +19,8 @@ os.environ["JWT_SECRET"] = "test-only-jwt-secret-0123456789abcdef"
 os.environ["CREDENTIAL_ENCRYPTION_KEYS"] = Fernet.generate_key().decode()
 os.environ["DEV_MODE"] = "0"
 os.environ["PLATFORM_MODE"] = "mock"
+# 測試會在同一瞬間登入很多次；限流本身的測試會把上限調回 10
+os.environ["LOGIN_ATTEMPTS_PER_MINUTE"] = "100000"
 # 服務內的排程迴圈在測試中關閉；測試直接呼叫排程函式或內部端點
 os.environ["SCHEDULER_ENABLED"] = "0"
 
@@ -54,8 +57,17 @@ def clean_tables(test_database):
         conn.execute(text("ALTER SEQUENCE global_event_seq RESTART WITH 1"))
         conn.execute(text("SET session_replication_role = DEFAULT"))
     clock.reset()
+    _reset_login_rate_limit()
     yield
     clock.reset()
+
+
+def _reset_login_rate_limit():
+    try:
+        from app.m1_accounts import rate_limit
+    except ImportError:  # 限流模組建立之前
+        return
+    rate_limit.limiter.reset()
 
 
 @pytest.fixture

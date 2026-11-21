@@ -82,5 +82,15 @@ class UserCreate(BaseModel):
         return value.strip()
 
 
+class TokenRefreshed(BaseModel):
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int
+
+
+class RoleUpdate(BaseModel):
+    role: Literal["admin", "publisher", "writer"]
+
+
 class UserStatusUpdate(BaseModel):
     status: Literal["active", "disabled"]

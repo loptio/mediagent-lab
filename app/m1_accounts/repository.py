@@ -4,11 +4,34 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.enums import Role, UserStatus
-from app.core.models import UserAccount, UserSession
+from app.core.models import LoginSecurityEvent, UserAccount, UserSession
 
 
 def get_by_email(db: Session, email: str) -> UserAccount | None:
     return db.scalar(select(UserAccount).where(UserAccount.email == email))
+
+
+def get_by_email_for_update(db: Session, email: str) -> UserAccount | None:
+    """登入時鎖定帳號：同時多次輸錯密碼時，失敗次數才不會少算。"""
+    stmt = select(UserAccount).where(UserAccount.email == email).with_for_update(key_share=True)
+    return db.scalar(stmt)
+
+
+def get_session_by_refresh_hash(db: Session, token_hash: str) -> UserSession | None:
+    stmt = select(UserSession).where(UserSession.refresh_token_hash == token_hash).with_for_update()
+    return db.scalar(stmt)
+
+
+def add_login_failure(
+    db: Session, *, reason: str, email: str, user_id: int | None, now: datetime
+) -> None:
+    """登入安全事件只記錄原因與嘗試的 Email，不保存密碼。"""
+    db.add(
+        LoginSecurityEvent(
+            failure_reason=reason, attempted_email=email, user_account_id=user_id, occurred_at=now
+        )
+    )
+    db.flush()
 
 
 def list_all(db: Session) -> list[UserAccount]:

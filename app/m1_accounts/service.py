@@ -1,20 +1,21 @@
-"""M1 帳號與安全：登入、登出、幹部帳號的查看／建立／停用／啟用。
-
-登入失敗鎖定、IP 限流、登入安全事件、換發 Token、調整角色、解除鎖定、登出所有裝置尚未實作。
+"""M1 帳號與安全：登入（含鎖定、IP 限流、登入安全事件）、換發 Token、登出、登出所有裝置，
+以及幹部帳號的查看／建立／調整角色／停用／啟用／解除鎖定。
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
+from functools import cache
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import audit, auth, clock
 from app.core.config import get_settings
-from app.core.enums import AuditAction, Role, TargetType, UserStatus
-from app.core.errors import DomainError, not_found
+from app.core.enums import AuditAction, LoginFailureReason, Role, TargetType, UserStatus
+from app.core.errors import DomainError, not_found, unauthenticated
 from app.core.models import UserAccount
 
-from . import repository
+from . import rate_limit, repository
 from .schemas import UserDetail
 
 MIN_PASSWORD_LENGTH = 8
@@ -33,16 +34,50 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def login(db: Session, email: str, password: str) -> LoginResult:
-    user = repository.get_by_email(db, normalize_email(email))
-    # NFR-10：帳號不存在、停用、密碼錯誤，一律回傳相同的失敗結果
-    if (
-        user is None
-        or user.status != UserStatus.ACTIVE
-        or not auth.verify_password(password, user.password_hash)
-    ):
-        raise DomainError(401, "LOGIN_FAILED", "Email 或密碼錯誤")
+@cache
+def _dummy_hash() -> str:
+    """帳號不存在時也做一次同樣成本的密碼比對，回應時間不會透露帳號是否存在。"""
+    return auth.hash_password("not-a-real-password-for-timing")
 
+
+def _login_failed(db: Session, reason: LoginFailureReason, email: str, user: UserAccount | None):
+    """記錄登入安全事件後回傳一律相同的失敗（NFR-10）；登入失敗不寫一般稽核。"""
+    repository.add_login_failure(
+        db, reason=reason, email=email, user_id=user.id if user else None, now=clock.now()
+    )
+    db.commit()
+    return DomainError(401, "LOGIN_FAILED", "Email 或密碼錯誤")
+
+
+def login(db: Session, email: str, password: str, ip: str) -> LoginResult:
+    settings = get_settings()
+    now = clock.now()
+    retry_after = rate_limit.limiter.attempt(ip, now, settings.login_attempts_per_minute)
+    if retry_after is not None:
+        raise DomainError(
+            429,
+            "TOO_MANY_LOGIN_ATTEMPTS",
+            "登入嘗試次數過多，請稍後再試",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    email = normalize_email(email)
+    user = repository.get_by_email_for_update(db, email)
+    if user is None:
+        auth.verify_password(password, _dummy_hash())
+        raise _login_failed(db, LoginFailureReason.ACCOUNT_NOT_FOUND, email, None)
+    if user.status != UserStatus.ACTIVE:
+        raise _login_failed(db, LoginFailureReason.ACCOUNT_DISABLED, email, user)
+    if user.locked_until is not None and now < user.locked_until:
+        raise _login_failed(db, LoginFailureReason.ACCOUNT_LOCKED, email, user)  # 到期那一刻即解除
+    if not auth.verify_password(password, user.password_hash):
+        user.failed_login_count += 1
+        if user.failed_login_count >= settings.login_failures_before_lock:
+            user.locked_until = now + timedelta(minutes=settings.login_lock_minutes)  # BR-41
+        raise _login_failed(db, LoginFailureReason.WRONG_PASSWORD, email, user)
+
+    user.failed_login_count = 0
+    user.locked_until = None
     session, refresh_token = auth.create_session(db, user)
     audit.write(
         db,
@@ -58,6 +93,31 @@ def login(db: Session, email: str, password: str) -> LoginResult:
         refresh_token=refresh_token,
         expires_in=get_settings().access_token_minutes * 60,
     )
+
+
+def refresh(db: Session, refresh_token: str | None) -> tuple[str, int]:
+    """以 Refresh Token 換發新的 Access Token（同一個 session）。回傳（access_token, expires_in）。"""
+    if not refresh_token:
+        raise unauthenticated()
+    session = repository.get_session_by_refresh_hash(db, auth.hash_refresh_token(refresh_token))
+    now = clock.now()
+    if session is None or session.revoked_at is not None or session.expires_at <= now:
+        raise unauthenticated()
+    user = db.get(UserAccount, session.user_account_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        raise unauthenticated()
+    session.last_used_at = now
+    db.commit()
+    return auth.issue_access_token(user.id, session.id), get_settings().access_token_minutes * 60
+
+
+def logout_all(db: Session, user: UserAccount) -> None:
+    """撤銷這個使用者全部的登入（BR-43）；其他使用者不受影響。"""
+    repository.revoke_all_sessions(db, user.id, clock.now())
+    audit.write(
+        db, action=AuditAction.LOGOUT_ALL, actor=user, target_type=TargetType.USER_ACCOUNT, target_id=user.id
+    )
+    db.commit()
 
 
 def logout(db: Session, user: UserAccount, session_id: int | None) -> None:
@@ -138,8 +198,8 @@ def set_status(db: Session, admin: UserAccount, user_id: int, status: str) -> Us
     if status == UserStatus.DISABLED:
         if target.status == UserStatus.DISABLED:
             raise DomainError(409, "USER_ALREADY_DISABLED", "這個帳號已經是停用狀態")
-        if target.role == Role.ADMIN and [a.id for a in active_admins] == [target.id]:
-            raise DomainError(409, "LAST_ACTIVE_ADMIN", "系統至少要保留一位啟用中的管理員")
+        if target.role == Role.ADMIN and _is_last_active_admin(target, active_admins):
+            raise _last_active_admin()
         target.status = UserStatus.DISABLED
         repository.revoke_all_sessions(db, target.id, now)
         action = AuditAction.USER_DISABLE
@@ -149,5 +209,60 @@ def set_status(db: Session, admin: UserAccount, user_id: int, status: str) -> Us
         target.status = UserStatus.ACTIVE
         action = AuditAction.USER_ENABLE
     audit.write(db, action=action, actor=admin, target_type=TargetType.USER_ACCOUNT, target_id=target.id)
+    db.commit()
+    return to_detail(target)
+
+
+def _is_last_active_admin(target: UserAccount, active_admins: list[UserAccount]) -> bool:
+    return not any(admin.id != target.id for admin in active_admins)
+
+
+def _last_active_admin() -> DomainError:
+    return DomainError(409, "LAST_ACTIVE_ADMIN", "系統至少要保留一位啟用中的管理員")
+
+
+def change_role(db: Session, admin: UserAccount, user_id: int, role: str) -> UserDetail:
+    """調整角色（FR-04、BR-19）：立即生效；停用的帳號也可以調整，帳號維持停用。"""
+    active_admins = repository.lock_active_admins(db)  # 與停用相同的鎖定順序：先管理員、再目標
+    target = repository.get_for_update(db, user_id)
+    if target is None:
+        raise not_found("找不到帳號")
+    if target.role == role:
+        return to_detail(target)  # 沒有改變：不寫稽核
+    if (
+        target.role == Role.ADMIN
+        and target.status == UserStatus.ACTIVE
+        and _is_last_active_admin(target, active_admins)
+    ):
+        raise _last_active_admin()
+
+    target.role = role
+    audit.write(
+        db,
+        action=AuditAction.USER_ROLE_CHANGE,
+        actor=admin,
+        target_type=TargetType.USER_ACCOUNT,
+        target_id=target.id,
+    )
+    db.commit()
+    return to_detail(target)
+
+
+def unlock(db: Session, admin: UserAccount, user_id: int) -> UserDetail:
+    """解除鎖定（FR-26、BR-39）：清除鎖定到期時間並歸零失敗次數，不改變啟用或停用狀態。"""
+    target = repository.get_for_update(db, user_id)
+    if target is None:
+        raise not_found("找不到帳號")
+    if target.locked_until is None or target.locked_until <= clock.now():
+        raise DomainError(409, "USER_NOT_LOCKED", "這個帳號目前沒有被鎖定")
+    target.locked_until = None
+    target.failed_login_count = 0
+    audit.write(
+        db,
+        action=AuditAction.USER_UNLOCK,
+        actor=admin,
+        target_type=TargetType.USER_ACCOUNT,
+        target_id=target.id,
+    )
     db.commit()
     return to_detail(target)
