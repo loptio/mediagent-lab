@@ -47,6 +47,7 @@
 | `FRONTEND_ORIGIN` | `<服務網址>` |
 | `S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` | 第 2 步的 `nak_live_…`、`nsk_live_…`（端點、區域、bucket、`MEDIA_BASE_URL` 已寫在 `render.yaml`） |
 | `THREADS_APP_ID`、`THREADS_APP_SECRET` | Meta 開發者網站上 Threads 使用情境的值（和本機 `.env` 相同） |
+| `INSTAGRAM_APP_SECRET` | Meta App 本身的應用程式密鑰（App 設定 → 基本資料；不是 Threads 那一組）。`INSTAGRAM_APP_ID`、`INSTAGRAM_LOGIN_CONFIG_ID` 已寫在 `render.yaml` |
 
 網址要等服務建立後才知道：先隨便填，部署完成後到服務的 **Environment** 改成正確的網址，再按 **Save, rebuild, and deploy**。`JWT_SECRET`、`OAUTH_STATE_SECRET`、`CRON_SECRET` 由 Render 自動產生。
 
@@ -62,15 +63,20 @@ DATABASE_URL='<第 1 步的 Neon 連線字串>' .venv/bin/python -m seeds.create
 
 之後用這個帳號登入 `<服務網址>`，其他幹部帳號在系統裡建立。
 
-## 6. Meta：登記正式環境的回呼網址
+## 6. Meta：登記正式環境的回呼網址，連結 Instagram
 
-在 Meta 開發者網站的 Threads 設定，Redirect Callback URLs 加上：
+回呼網址都是：
 
 ```
 <服務網址>/api/v1/platform-accounts/oauth/callback
 ```
 
-本機的 `https://localhost:8443/...` 可以保留，兩個都能用。
+- **Threads：** 在 Threads 設定的 Redirect Callback URLs 加上。本機的 `https://localhost:8443/...` 可以保留，兩個都能用。
+- **Instagram：** Use cases → Manage messaging & content on Instagram → API setup with Unified login，登入設定（configuration）的 Redirect URL 填這個網址；Facebook Login for Business → Settings 的 Valid OAuth Redirect URIs 也要有。Meta 不接受 `https://localhost`，Instagram 的授權只能在正式環境做。
+
+已經用 Blueprint 建立服務的話，Render 不會詢問之後才加進 `render.yaml` 的機密變數：到服務的 **Environment** 手動加上 `INSTAGRAM_APP_SECRET`，再按 **Save, rebuild, and deploy**。
+
+連結 Instagram：以管理員登入 `<服務網址>`，在「平台帳號」選連結 Instagram。Meta 的視窗裡選社團的企業管理平台，資產只勾**一個** Instagram 專業帳號（勾兩個以上會連結失敗），同意權限後會導回系統並顯示連結成功。Instagram 的 Token 預設不會過期，平台帳號列表的授權到期時間是空的。
 
 ## 7. 定時觸發：讓排程準時、服務不休眠
 
@@ -89,8 +95,8 @@ Render 免費方案閒置 15 分鐘會休眠，休眠時服務內的排程檢查
 
 ## 8. 部署後檢查
 
-- 用管理員登入，連結 Discord 頻道與 Threads 帳號，各發一則有圖片的貼文。
-- Threads 帶圖發文時，Threads 會從 Neon Object Storage 的公開網址下載圖片（foundation-plan §10 第 3 項，部署後第一次實測）；失敗時在發佈結果（管理員可看到平台錯誤訊息）確認原因。
+- 用管理員登入，連結 Discord 頻道、Threads 與 Instagram 帳號，各發一則有圖片的貼文。
+- Threads、Instagram 帶圖發文時，平台會從 Neon Object Storage 的公開網址下載圖片（foundation-plan §10 第 3 項，部署後第一次實測）；失敗時在發佈結果（管理員可看到平台錯誤訊息）確認原因。Instagram 的錯誤子代碼 `2207052` 代表圖片網址下載不到。
 - 排程一則 5 分鐘後的貼文，確認時間到後幾分鐘內發出。
 
 ## 容量與費用

@@ -54,6 +54,10 @@ docker compose --profile oauth up -d
 6. 瀏覽器會被導回 `https://localhost:8443`。憑證是本機自己簽發的，瀏覽器會顯示警告，選擇繼續前往即可；之後會看到「連結成功」。
 7. 之後就和 Discord 一樣：建立貼文、把目標設為這個 Threads 帳號、立即發佈。
 
+### 連結 Instagram
+
+Instagram 用 Facebook 企業版登入，登入設定的導回網址只登記了正式環境（Meta 不接受 `https://localhost`），所以授權要在正式環境做，步驟見 [docs/deploy.md](docs/deploy.md) 第 6 步。本機開發 Instagram 相關功能用 `PLATFORM_MODE=mock`。
+
 ### 排程與重試
 
 1. `PUT /api/v1/posts/{id}/schedule`：`{"scheduled_at": "2026-12-01T12:00:00+08:00"}`。時間以台灣時間輸入，必須晚於現在，且是 5 分鐘整（12:00、12:05…）。撰稿者不能為草稿設定排程。
@@ -170,13 +174,15 @@ python -m pytest -q
 
 | 已完成 | 尚未實作 |
 |---|---|
-| 14 張資料表與 migration、只能新增的稽核表 | Instagram 的真實串接（需要 Instagram 專業帳號） |
-| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | 部署（Render 帳號與第一次部署） |
+| 14 張資料表與 migration、只能新增的稽核表 | Instagram 真實發文的實測（授權只能在正式環境完成） |
+| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | |
 | 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | |
 | 貼文：建立、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片 | |
 | 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | |
 | 三步發佈引擎、發佈紀錄與變更歷程、稽核查詢 | |
 | Discord：連結、重新連結、真實發文（含圖片附件）；Threads：授權連結、重新連結、真實發文 | |
+| Instagram：Facebook 企業版登入連結、重新連結、container 三步發文 | |
+| 部署：Render + Neon（資料庫與 Object Storage），https://mediagent-lab.onrender.com | |
 | 452 個驗收例子：447 通過、5 待確認 | |
 | 前端：登入、貼文列表與編輯（圖片、預覽、排程、發佈與結果、變更歷程、複製）、平台帳號、幹部帳號、稽核紀錄 | |
 | E2E：三個使用情境（Playwright，mock 平台） | |

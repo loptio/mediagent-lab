@@ -113,3 +113,27 @@ def test_mock_fail_once_prefix_fails_first_attempt_then_succeeds():
     assert first.reason == FailureReason.PLATFORM_UNAVAILABLE
     assert isinstance(second, Started)
     assert isinstance(other, Started)
+
+
+def test_real_mode_registers_a_real_adapter_for_every_platform(monkeypatch):
+    """正式模式下三個平台都有真實的 Adapter；Instagram 可以走授權流程連結。"""
+    from app import main
+    from app.core.config import get_settings
+    from app.m2_platforms.adapters.discord import DiscordAdapter
+    from app.m2_platforms.adapters.instagram import InstagramAdapter
+    from app.m2_platforms.adapters.threads import ThreadsAdapter
+
+    saved = dict(platforms._registry)
+    monkeypatch.setattr(get_settings(), "platform_mode", "real")
+    try:
+        main._register_adapters()
+        registered = {platform: type(platforms.get_adapter(platform)) for platform in Platform}
+    finally:
+        platforms._registry.clear()
+        platforms._registry.update(saved)
+
+    assert registered == {
+        Platform.DISCORD: DiscordAdapter,
+        Platform.THREADS: ThreadsAdapter,
+        Platform.INSTAGRAM: InstagramAdapter,
+    }

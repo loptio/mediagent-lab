@@ -23,6 +23,7 @@ MAX_OUTPUT_BYTES = 8_000_000
 # 有些相機的 JPEG 夾帶多張圖（MPO），本質仍是 JPEG
 JPEG_FORMATS = {"JPEG", "MPO"}
 QUALITY_STEPS = (90, 80, 70, 60, 50, 40)
+EXIF_ORIENTATION = 0x0112
 
 
 def _round_half_up(value: float) -> int:
@@ -68,6 +69,13 @@ def inspect(data: bytes) -> tuple[int, int]:
     """讀取實際格式（不信任副檔名或 Content-Type），回傳顯示時的（寬, 高）。"""
     with _open_upright(data) as image:
         return image.size
+
+
+def instagram_ready(data: bytes) -> bool:
+    """原圖能不能直接給 Instagram：Instagram 不接受 MPO，也不保證依 EXIF 方向轉正。
+    呼叫前已經通過 inspect，這裡只讀標頭。"""
+    with Image.open(io.BytesIO(data)) as image:
+        return image.format == "JPEG" and image.getexif().get(EXIF_ORIENTATION, 1) == 1
 
 
 def instagram_size(width: int, height: int) -> tuple[int, int]:

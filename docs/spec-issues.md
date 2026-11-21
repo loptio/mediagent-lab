@@ -26,3 +26,6 @@
 | B10 | 「誰正在處理這一筆」的租約長度 | 270 秒（單筆總時限 180 秒＋發文與確認各一次呼叫＋餘裕），不是 D-01 的 3 分鐘 | 發文與確認可能在 180 秒時限之後才結束 |
 | B11 | 正式環境的圖片儲存 | Neon Object Storage（S3 相容、公開讀取的 bucket）；PostgreSQL 的 `media_blob` 保留為備案（2026-11-22 決定，不用 Cloudflare R2） | R2 開通需要信用卡；Neon 免費 5 GB |
 | B12 | 修改已排程貼文 | 依 BR-24 完整檢查發佈限制，包含目標的授權狀態 | 規格條文如此；授權在排程後過期時，要先處理目標才能改文字 |
+| B13 | Instagram 的授權方式 | 改用 Facebook 企業版登入（foundation-plan D-05 更新）；Token 預設不過期，授權到期時間為空 | 新建立的 Meta App 已經不能用 Instagram Login |
+| B14 | 一次授權分享多個 Instagram 帳號 | 拒絕（`PLATFORM_AUTH_FAILED`），請只分享一個 | 一次連結對應一個平台帳號；不猜要用哪一個 |
+| B15 | 比例已符合、但 Instagram 讀不了的原圖 | MPO 或帶 EXIF 旋轉的照片，另存一份重新編碼、轉正的 Instagram 版本；寬高相同，不算裁切 | Instagram 官方不接受 MPO；BR-06 的「與原圖相同」解讀為畫面相同 |

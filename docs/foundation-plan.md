@@ -178,11 +178,16 @@ MockAdapter 與驗收例子句型的對應，確認現有句型都能用三步�
 | 平台 | 授權方式 | 申請的權限 |
 |---|---|---|
 | Threads | Threads 自己的 OAuth | `threads_basic`、`threads_content_publish` |
-| Instagram | **Instagram Login**（不經過 Facebook 粉專） | `instagram_business_basic`、`instagram_business_content_publish` |
+| Instagram | **Facebook 企業版登入**（Instagram API with Unified Login，不需要 Facebook 粉專） | 由 Meta 後台的登入設定（`config_id`）決定；發文用到 `instagram_basic`、`instagram_content_publish` |
 
-Postiz 兩種 Instagram 登入都有實作。經 Facebook 登入的版本，授權後還要多一步「選擇粉專」，需要額外的中間狀態；Instagram Login 沒有這一步，也不需要社團有 Facebook 粉專。帳號仍須是專業帳號。
+**2026-11-22 更新：** 原本選的 Instagram Login 已經不開放給新建立的 Meta App，後台只剩「API setup with Unified login」，也就是 Facebook 企業版登入。做法：
 
-Postiz 另外申請了留言與洞察報告的權限，我們用不到，不申請（NFR-06 最小權限）。兩個平台的長效 token 約 60 天到期。
+- 登入視窗帶登入設定的 `config_id`，不帶 `scope`；權限與可分享的資產（Instagram 帳號）在設定裡決定。Meta 的預設設定固定包含留言、私訊與廣告權限，刪不掉；我們只使用發文需要的兩個。
+- 換到的是「企業整合系統使用者」Token，屬於社團的企業管理平台，預設不會過期，因此授權到期時間為空（需求 4.2：平台未提供時為空）。社團從企業管理平台移除 App 時 Token 失效，發文會回報授權無效並標示失效。
+- 這個 Token 的 `/me` 不是 Instagram 帳號；帳號由 `/me/assigned_instagram_accounts` 取得，必須剛好一個（一次連結對應一個平台帳號，重新連結以帳號 ID 比對）。清單是空的時（App 與 Instagram 帳號在同一個企業管理平台），改看 Token 的授權範圍。
+- 發文與 Threads 相同是 container 三步，主機是 `graph.facebook.com`。
+
+Threads 的長效 token 約 60 天到期。
 
 #### D-11 平台錯誤分類與有限重試
 
@@ -266,7 +271,7 @@ Postiz 會在到期前自動更新 token。我們維持 MVP 不做，由管理�
 | D-02 | 30 秒改為單次呼叫逾時；新增單筆總時限 3 分鐘 | 需求 BR-32、NFR-03；架構 1.1、6.1、9.4；`erm.dbml` 的說明文字 | 步驟不受影響；**兩處文字要改**（見下） |
 | D-03 | 逾時恢復一律先 `check` 再處理；移除 `AUTO_RETRY_STARTED` | 架構 6.2；資料模型 2.4；需求 4.4.1；`erm.dbml` | 步驟不受影響 |
 | D-04 | 貼文軟刪除；`publish_record.post_id` 加外鍵 | 需求 4.3；資料模型 1、4.1、5.7、5.10、8；`erm.dbml` | 步驟不受影響 |
-| D-05 | Instagram 用 Instagram Login；兩平台只申請發文權限 | 架構 7.2 | 不受影響 |
+| D-05 | Instagram 用 Facebook 企業版登入（2026-11-22 更新）；Threads 只申請發文權限 | 架構 7.2 | 不受影響 |
 | D-06 | 前後端同源部署 | 架構 3.1、3.2、16；API 設計 1.2；團隊規範 3.3、11 | 不受影響 |
 | D-07 | 三層排程觸發 | 架構 2、6、15（決策 4） | 不受影響 |
 | D-08 | 取消 `dev` 分支 | 團隊規範 4.1、4.4、7.2 | — |
@@ -423,7 +428,7 @@ D-02 有兩處**說明文字**提到「30 秒」，不是步驟，但 Rule 標�
 | 1 | Threads 的純文字與圖片貼文，container 要等多久才可以發佈 | D-02 的總時限 |
 | 2 | 對同一個 container 發佈兩次，平台怎麼回應；狀態是否會變成 `PUBLISHED` | D-03 防重複的依據 |
 | 3 | Threads 與 Instagram 能不能讀到 Neon Object Storage 公開網址上的圖片 | M3 的儲存實作 |
-| 4 | Instagram Login 的流程、專業帳號的要求、token 期限 | D-05 |
+| 4 | Instagram 的登入流程、專業帳號的要求、token 期限（已查證：改用 Facebook 企業版登入，Token 預設不過期） | D-05 |
 | 5 | Discord Webhook 加 `?wait=true` 的回應內容、附件上傳 | D-12 |
 | 6 | 各平台字數怎麼算。Threads 官方文件說 emoji 以 UTF-8 位元組計算 | 補上驗收例子的 `#TODO` |
 | 7 | OAuth 回呼網址是否必須是 HTTPS。Postiz 的程式對非 HTTPS 網址做了特別處理，看起來是必須的 | 本機開發要用隧道，或直接在正式環境測 OAuth |

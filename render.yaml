@@ -49,6 +49,13 @@ services:
         sync: false
       - key: THREADS_APP_SECRET
         sync: false
+      # Instagram（Facebook 企業版登入）：App ID 與登入設定 ID 都會出現在登入網址，不是機密
+      - key: INSTAGRAM_APP_ID
+        value: "1810251873520696"
+      - key: INSTAGRAM_LOGIN_CONFIG_ID
+        value: "991299824049209"
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
       # Render 前面有一層反向代理：從 X-Forwarded-For 最右邊取得用戶端 IP（登入限流用）
       - key: TRUSTED_PROXY_HOPS
         value: "1"
