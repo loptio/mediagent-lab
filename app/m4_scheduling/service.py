@@ -25,7 +25,16 @@ from app.m3_posts import service as posts_service
 from app.m3_posts.schemas import PostOut
 
 from . import repository
-from .schemas import PublishRecordOut, PublishRecordsOut, RecordAccount, TargetOut, TargetsOut
+from .schemas import (
+    HistoryActor,
+    HistoryItem,
+    HistoryOut,
+    PublishRecordOut,
+    PublishRecordsOut,
+    RecordAccount,
+    TargetOut,
+    TargetsOut,
+)
 
 EDITABLE_STATUSES = (PostStatus.DRAFT, PostStatus.SCHEDULED)
 # 台灣沒有日光節約時間，固定 UTC+8
@@ -47,6 +56,8 @@ def set_targets(db: Session, user: UserAccount, post_id: int, account_ids: list[
     if len(set(account_ids)) != len(account_ids):
         raise DomainError(400, "TARGET_DUPLICATE", "同一個平台帳號不可重複選擇")
 
+    # 先鎖定要選的平台帳號、再鎖定貼文（與移除平台帳號的順序一致），檢查完到提交前帳號不會被移除
+    accounts = repository.get_accounts(db, account_ids, lock=True)
     post = repository.get_post_for_update(db, post_id)
     if post is None:
         raise not_found("找不到貼文")
@@ -60,7 +71,6 @@ def set_targets(db: Session, user: UserAccount, post_id: int, account_ids: list[
             422, "SCHEDULED_POST_REQUIRES_TARGET", "已排程的貼文至少要保留一個目標平台帳號"
         )
 
-    accounts = repository.get_accounts(db, account_ids)
     usable = {account.id for account in accounts if not account.removed}
     missing = [aid for aid in account_ids if aid not in usable]
     if missing:
@@ -211,4 +221,25 @@ def get_publish_records(db: Session, user: UserAccount, post_id: int) -> Publish
         post_deleted=deleted,
         post_status=None if deleted else post.status,
         items=items,
+    )
+
+
+def get_history(db: Session, post_id: int) -> HistoryOut:
+    """發佈紀錄的變更歷程，由舊到新；貼文刪除後仍可查詢（FR-17、BR-35）。"""
+    if repository.get_post_including_deleted(db, post_id) is None:
+        raise not_found("找不到貼文")
+    return HistoryOut(
+        post_id=post_id,
+        items=[
+            HistoryItem(
+                publish_record_id=history.publish_record_id,
+                from_status=history.from_status,
+                to_status=history.to_status,
+                changed_at=history.changed_at,
+                actor_type=history.actor_type,
+                actor=HistoryActor(id=actor.id, name=actor.name) if actor else None,
+                reason=history.reason,
+            )
+            for history, actor in repository.history_of(db, post_id)
+        ],
     )

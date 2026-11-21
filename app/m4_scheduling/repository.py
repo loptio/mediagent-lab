@@ -1,7 +1,15 @@
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.models import PlatformAccount, Post, PostTarget, PublishRecord
+from app.core.enums import PostStatus
+from app.core.models import (
+    PlatformAccount,
+    Post,
+    PostTarget,
+    PublishRecord,
+    PublishRecordHistory,
+    UserAccount,
+)
 
 
 def get_post_for_update(db: Session, post_id: int) -> Post | None:
@@ -14,12 +22,15 @@ def get_post_including_deleted(db: Session, post_id: int) -> Post | None:
     return db.get(Post, post_id)
 
 
-def get_accounts(db: Session, account_ids: list[int]) -> list[PlatformAccount]:
+def get_accounts(db: Session, account_ids: list[int], *, lock: bool = False) -> list[PlatformAccount]:
+    """lock=True 時以 FOR SHARE 鎖定：檢查「未移除」到交易結束之間，帳號不會被移除。"""
     if not account_ids:
         return []
     stmt = select(PlatformAccount).where(PlatformAccount.id.in_(account_ids)).order_by(
         PlatformAccount.id
     )
+    if lock:
+        stmt = stmt.with_for_update(read=True)
     return list(db.scalars(stmt))
 
 
@@ -46,3 +57,37 @@ def list_records(db: Session, post_id: int) -> list[PublishRecord]:
         .order_by(PublishRecord.id)
     )
     return list(db.scalars(stmt))
+
+
+def lock_editable_posts_targeting(db: Session, account_id: int) -> list[Post]:
+    """以這個平台帳號為目標的草稿與已排程貼文（依 id 鎖定，與排程認領互斥）。"""
+    stmt = (
+        select(Post)
+        .join(PostTarget, PostTarget.post_id == Post.id)
+        .where(
+            PostTarget.platform_account_id == account_id,
+            Post.deleted_at.is_(None),
+            Post.status.in_((PostStatus.DRAFT, PostStatus.SCHEDULED)),
+        )
+        .order_by(Post.id)
+        .with_for_update(of=Post)
+    )
+    return list(db.scalars(stmt))
+
+
+def remove_target(db: Session, post_id: int, account_id: int) -> None:
+    db.execute(
+        delete(PostTarget).where(PostTarget.post_id == post_id, PostTarget.platform_account_id == account_id)
+    )
+    db.flush()
+
+
+def history_of(db: Session, post_id: int) -> list[tuple[PublishRecordHistory, UserAccount | None]]:
+    stmt = (
+        select(PublishRecordHistory, UserAccount)
+        .join(PublishRecord, PublishRecord.id == PublishRecordHistory.publish_record_id)
+        .outerjoin(UserAccount, UserAccount.id == PublishRecordHistory.actor_id)
+        .where(PublishRecord.post_id == post_id)
+        .order_by(PublishRecordHistory.changed_at, PublishRecordHistory.id)
+    )
+    return [(history, actor) for history, actor in db.execute(stmt)]

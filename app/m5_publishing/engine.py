@@ -240,6 +240,16 @@ def _load_jobs(post_id: int) -> list[Job]:
         for record in repository.pending_records(db, post_id):
             if not lease_is_free(record.attempt_started_at, now):
                 continue  # 另一個執行者正在處理這一筆，不重複送出
+            if record.platform_account.removed:
+                # 移除剛好發生在設定目標或排程的檢查之後：不送出，記為失敗（重試時會跳過已移除的帳號）
+                publish_records.set_result(
+                    db,
+                    record.id,
+                    Failed(FailureReason.OTHER, "platform account was removed"),
+                    reason=HistoryReason.TARGET_ACCOUNT_REMOVED,
+                    content_summary=post.content,
+                )
+                continue
             repository.start_attempt(db, record, now)
             jobs.append(job_for(record, post))
         return jobs

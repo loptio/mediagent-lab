@@ -1,19 +1,19 @@
-"""M3 貼文編輯：建立、取得、列表、修改、刪除。
+"""M3 貼文編輯：建立、取得、列表、修改、刪除、複製為新草稿、預覽。
 
-圖片、預覽、複製為新草稿尚未實作。
+圖片尚未實作。
 """
 
 from sqlalchemy.orm import Session
 
-from app.core import auth, clock, publish_rules
-from app.core.enums import PostStatus, Role
+from app.core import audit, auth, clock, publish_rules
+from app.core.enums import AuditAction, AuthStatus, PostStatus, Role, TargetType
 from app.core.errors import DomainError, not_found
 from app.core.models import PlatformAccount, Post, UserAccount
-from app.core.platforms import effective_auth_status
+from app.core.platforms import effective_auth_status, get_adapter
 from app.m4_scheduling import lifecycle
 
 from . import repository
-from .schemas import PostListItem, PostOut, PostPage, TargetOut, UserRef
+from .schemas import PostListItem, PostOut, PostPage, PreviewItem, PreviewOut, TargetOut, UserRef
 
 PAGE_SIZES = (20, 50, 100)
 EDITABLE_STATUSES = (PostStatus.DRAFT, PostStatus.SCHEDULED)
@@ -123,3 +123,53 @@ def delete_post(db: Session, user: UserAccount, post_id: int) -> None:
         lifecycle.on_post_deleting(db, post, user)  # 待發佈紀錄改為已取消
     post.deleted_at = clock.now()
     db.commit()
+
+
+def copy_post(db: Session, user: UserAccount, post_id: int) -> PostOut:
+    """複製為新草稿（FR-27、BR-36）：任何狀態都可以複製；新草稿沒有目標與發佈紀錄，建立者是執行複製的人。"""
+    source = repository.get_active(db, post_id)
+    if source is None:
+        raise not_found("找不到貼文")
+    auth.ensure_owner_or_role(user, source.creator_id, Role.PUBLISHER)
+    draft = repository.create(db, user.id, source.content)
+    audit.write(
+        db,
+        action=AuditAction.POST_COPY,
+        actor=user,
+        target_type=TargetType.POST,
+        target_id=source.id,
+        related_post_id=draft.id,  # 《資料模型》audit_log：複製時記錄新草稿
+    )
+    db.commit()
+    return get_post(db, draft.id)
+
+
+def preview(db: Session, post_id: int) -> PreviewOut:
+    """每個已選目標各一筆預覽（FR-20、BR-46）。只讀資料、不呼叫平台；授權已失效的目標照常顯示並標示。"""
+    post = repository.get_active(db, post_id)
+    if post is None:
+        raise not_found("找不到貼文")
+    accounts = repository.targets_of(db, [post.id])[post.id]
+    if not accounts:
+        raise DomainError(422, "NO_TARGET", "請至少選擇一個目標平台帳號才能預覽")
+
+    items = []
+    for account, target in zip(accounts, _targets(accounts), strict=True):
+        adapter = get_adapter(account.platform)
+        count = adapter.count_chars(post.content)
+        limit = adapter.capabilities.max_text_length
+        warnings = []
+        if count > limit:
+            warnings.append("CONTENT_TOO_LONG")
+        if target.auth_status == AuthStatus.INVALID:
+            warnings.append("AUTH_INVALID")
+        items.append(
+            PreviewItem(
+                platform_account=target,
+                text=post.content,
+                char_count=count,
+                char_limit=limit,
+                warnings=warnings,
+            )
+        )
+    return PreviewOut(items=items)

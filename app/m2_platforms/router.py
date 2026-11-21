@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from .schemas import (
     PlatformAccountCreate,
     PlatformAccountList,
     PlatformAccountOut,
+    WebhookRelink,
 )
 
 router = APIRouter(prefix="/platform-accounts", tags=["平台帳號"])
@@ -37,6 +38,32 @@ def link_account(
 ):
     """Webhook 網址等同密碼：只會加密保存，不會出現在任何回應中。"""
     return service.link_webhook_account(db, admin, data.platform, data.account_name, data.webhook_url)
+
+
+@router.put(
+    "/{account_id}/credential",
+    response_model=PlatformAccountOut,
+    summary="重新連結平台帳號（Discord Webhook）",
+)
+def relink_webhook(
+    account_id: int,
+    data: WebhookRelink,
+    db: Session = Depends(get_db),
+    admin: UserAccount = Depends(require_role(Role.ADMIN)),
+):
+    """換成新的 Webhook 網址；驗證失敗時保留原本的設定。選了這個帳號的貼文與既有發佈紀錄都不變。"""
+    return service.relink_webhook(db, admin, account_id, data.webhook_url)
+
+
+@router.delete("/{account_id}", status_code=204, summary="移除平台帳號")
+def remove_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    admin: UserAccount = Depends(require_role(Role.ADMIN)),
+):
+    """從草稿與已排程貼文的目標中拿掉；它是已排程貼文唯一的目標時，該貼文改回草稿。發佈紀錄保留。"""
+    service.remove_account(db, admin, account_id)
+    return Response(status_code=204)
 
 
 @router.post(

@@ -23,6 +23,12 @@ class Settings(BaseSettings):
 
     access_token_minutes: int = 15
     session_days: int = 7
+    # BR-41：連續失敗 5 次鎖定 15 分鐘；BR-42：同一 IP 任意 60 秒內最多 10 次登入嘗試
+    login_failures_before_lock: int = 5
+    login_lock_minutes: int = 15
+    login_attempts_per_minute: int = 10
+    # 前面有幾層受信任的反向代理（本機直接連為 0；Render 為 1）；用來從 X-Forwarded-For 取出真正的用戶端 IP
+    trusted_proxy_hops: int = 0
 
     # foundation-plan D-02：單次平台呼叫逾時、單筆發佈總時限、查詢 container 狀態的間隔
     platform_call_timeout_seconds: float = 30

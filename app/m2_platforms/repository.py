@@ -70,3 +70,15 @@ def add_auth_event(
         )
     )
     db.flush()
+
+
+def get_active(db: Session, account_id: int, *, for_update: bool = False) -> PlatformAccount | None:
+    """未移除的平台帳號；已移除的視為不存在。"""
+    stmt = select(PlatformAccount).where(
+        PlatformAccount.id == account_id, PlatformAccount.removed.is_(False)
+    )
+    if for_update:
+        # FOR NO KEY UPDATE：新增指向這個帳號的目標或發佈紀錄時，外鍵取得的 FOR KEY SHARE 不會被擋住，
+        # 設定目標與移除帳號同時進行時不會互相卡死
+        stmt = stmt.with_for_update(key_share=True)
+    return db.scalar(stmt)

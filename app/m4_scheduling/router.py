@@ -7,7 +7,7 @@ from app.core.models import UserAccount
 from app.m3_posts.schemas import PostOut
 
 from . import service
-from .schemas import PublishRecordsOut, ScheduleUpdate, TargetsOut, TargetsUpdate
+from .schemas import HistoryOut, PublishRecordsOut, ScheduleUpdate, TargetsOut, TargetsUpdate
 
 router = APIRouter(prefix="/posts", tags=["目標與排程"])
 
@@ -55,3 +55,12 @@ def get_publish_records(
     user: UserAccount = Depends(get_current_user),
 ):
     return service.get_publish_records(db, user, post_id)
+
+
+@router.get("/{post_id}/publish-records/history", response_model=HistoryOut, summary="查看發佈紀錄的變更歷程")
+def get_history(
+    post_id: int,
+    db: Session = Depends(get_db),
+    _: UserAccount = Depends(get_current_user),
+):
+    return service.get_history(db, post_id)

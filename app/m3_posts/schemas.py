@@ -11,6 +11,19 @@ class PostUpdate(BaseModel):
     content: str
 
 
+class PreviewItem(BaseModel):
+    platform_account: "TargetOut"
+    text: str
+    char_count: int
+    char_limit: int
+    image: None = None  # 圖片功能完成後提供各平台版本
+    warnings: list[str]
+
+
+class PreviewOut(BaseModel):
+    items: list[PreviewItem]
+
+
 class UserRef(BaseModel):
     id: int
     name: str

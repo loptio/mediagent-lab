@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, require_role
@@ -7,10 +7,12 @@ from app.core.db import get_db
 from app.core.enums import Role
 from app.core.models import UserAccount
 
-from . import service
+from . import rate_limit, service
 from .schemas import (
     LoginRequest,
     LoginResponse,
+    RoleUpdate,
+    TokenRefreshed,
     UserCreate,
     UserDetail,
     UserList,
@@ -24,8 +26,10 @@ REFRESH_COOKIE = "refresh_token"
 
 
 @router.post("/login", response_model=LoginResponse, summary="登入")
-def login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    result = service.login(db, data.email, data.password)
+def login(data: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    """所有失敗原因都回傳相同的 401；同一個 IP 一分鐘內最多 10 次登入嘗試。"""
+    ip = rate_limit.client_ip(request, get_settings().trusted_proxy_hops)
+    result = service.login(db, data.email, data.password, ip)
     settings = get_settings()
     # Refresh Token 只放在 HttpOnly Cookie；前後端同源部署，使用 SameSite=Lax（foundation-plan D-06）
     response.set_cookie(
@@ -42,6 +46,25 @@ def login(data: LoginRequest, response: Response, db: Session = Depends(get_db))
         expires_in=result.expires_in,
         user=UserOut.model_validate(result.user, from_attributes=True),
     )
+
+
+@router.post("/refresh", response_model=TokenRefreshed, summary="換發 Access Token")
+def refresh(
+    db: Session = Depends(get_db), refresh_token: str | None = Cookie(default=None, include_in_schema=False)
+):
+    """用登入時設定的 HttpOnly Cookie 換發新的 Access Token；登出、停用或過期後無法換發。"""
+    access_token, expires_in = service.refresh(db, refresh_token)
+    return TokenRefreshed(access_token=access_token, expires_in=expires_in)
+
+
+@router.post("/logout-all", status_code=204, summary="登出所有裝置")
+def logout_all(
+    response: Response, db: Session = Depends(get_db), user: UserAccount = Depends(get_current_user)
+):
+    service.logout_all(db, user)
+    response.delete_cookie(REFRESH_COOKIE, path="/api/v1/auth")
+    response.status_code = 204
+    return response
 
 
 @router.get("/me", response_model=UserOut, summary="目前登入的使用者")
@@ -92,3 +115,24 @@ def set_status(
 ):
     """停用後該帳號立即無法登入，手上的登入也全部失效；建立的貼文與已連結的平台帳號都保留。"""
     return service.set_status(db, admin, user_id, data.status)
+
+
+@users_router.patch("/{user_id}", response_model=UserDetail, summary="調整角色")
+def change_role(
+    user_id: int,
+    data: RoleUpdate,
+    db: Session = Depends(get_db),
+    admin: UserAccount = Depends(require_role(Role.ADMIN)),
+):
+    """角色立即生效；最後一位啟用中的管理員不可改成其他角色。"""
+    return service.change_role(db, admin, user_id, data.role)
+
+
+@users_router.delete("/{user_id}/lock", response_model=UserDetail, summary="解除鎖定")
+def unlock(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: UserAccount = Depends(require_role(Role.ADMIN)),
+):
+    """清除連續登入失敗造成的鎖定；不改變帳號的啟用或停用狀態。"""
+    return service.unlock(db, admin, user_id)

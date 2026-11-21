@@ -45,6 +45,26 @@ class PublishRecordOut(BaseModel):
     platform_error_message: str | None = None
 
 
+class HistoryActor(BaseModel):
+    id: int
+    name: str
+
+
+class HistoryItem(BaseModel):
+    publish_record_id: int
+    from_status: str | None
+    to_status: str
+    changed_at: datetime
+    actor_type: str
+    actor: HistoryActor | None
+    reason: str
+
+
+class HistoryOut(BaseModel):
+    post_id: int
+    items: list[HistoryItem]
+
+
 class PublishRecordsOut(BaseModel):
     post_id: int
     post_deleted: bool
