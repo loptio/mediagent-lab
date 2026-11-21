@@ -272,3 +272,10 @@ def test_denied_authorization_is_logged_with_the_platform_reason(client, db, moc
 
     assert "access_denied" in caplog.text
     assert state not in caplog.text
+
+
+def test_docs_prefill_a_request_body_that_works(client):
+    """Swagger 的「Try it out」會預填範例內容：預填的內容必須能直接送出，不可以帶重新連結的欄位。"""
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+
+    assert schemas["OAuthStart"]["examples"] == [{"platform": "threads"}]
