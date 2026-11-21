@@ -17,6 +17,11 @@ export type PostListItem = Schemas['PostListItem']
 export type PublishRecords = Schemas['PublishRecordsOut']
 export type PublishRecord = Schemas['PublishRecordOut']
 export type PublishJobAccepted = Schemas['PublishJobAccepted']
+export type PostImage = Schemas['ImageOut']
+export type PreviewItem = Schemas['PreviewItem']
+export type HistoryItem = Schemas['HistoryItem']
+export type EventPage = Schemas['EventPage']
+export type AuditEvent = EventPage['items'][number]
 
 export const authApi = {
   login: (email: string, password: string) =>
@@ -25,6 +30,7 @@ export const authApi = {
   refresh: () => api.post<Schemas['TokenRefreshed']>('/auth/refresh'),
   me: () => api.get<CurrentUser>('/auth/me'),
   logout: () => api.post<void>('/auth/logout'),
+  logoutAll: () => api.post<void>('/auth/logout-all'),
 }
 
 export const usersApi = {
@@ -32,11 +38,19 @@ export const usersApi = {
   create: (data: UserCreate) => api.post<UserDetail>('/users', data),
   setStatus: (id: number, status: Schemas['UserStatusUpdate']['status']) =>
     api.put<UserDetail>(`/users/${id}/status`, { status } satisfies Schemas['UserStatusUpdate']),
+  setRole: (id: number, role: Schemas['RoleUpdate']['role']) =>
+    api.patch<UserDetail>(`/users/${id}`, { role } satisfies Schemas['RoleUpdate']),
+  unlock: (id: number) => api.delete<UserDetail>(`/users/${id}/lock`),
 }
 
 export const platformAccountsApi = {
   list: () => api.get<Schemas['PlatformAccountList']>('/platform-accounts'),
   linkDiscord: (data: PlatformAccountCreate) => api.post<PlatformAccount>('/platform-accounts', data),
+  relinkDiscord: (id: number, webhookUrl: string) =>
+    api.put<PlatformAccount>(`/platform-accounts/${id}/credential`, {
+      webhook_url: webhookUrl,
+    } satisfies Schemas['WebhookRelink']),
+  remove: (id: number) => api.delete<void>(`/platform-accounts/${id}`),
   startOAuth: (platform: string, platformAccountId?: number) =>
     api.post<Schemas['OAuthStarted']>('/platform-accounts/oauth-authorizations', {
       platform,
@@ -67,4 +81,28 @@ export const postsApi = {
   publishRecords: (id: number) => api.get<PublishRecords>(`/posts/${id}/publish-records`),
   publish: (id: number, type: Schemas['PublishJobCreate']['type']) =>
     api.post<PublishJobAccepted>(`/posts/${id}/publish-jobs`, { type } satisfies Schemas['PublishJobCreate']),
+  history: (id: number) => api.get<Schemas['HistoryOut']>(`/posts/${id}/publish-records/history`),
+  preview: (id: number) => api.get<Schemas['PreviewOut']>(`/posts/${id}/preview`),
+  copy: (id: number) => api.post<Post>(`/posts/${id}/copies`),
+  attachImage: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<PostImage>(`/posts/${id}/image`, form)
+  },
+  removeImage: (id: number) => api.delete<void>(`/posts/${id}/image`),
+}
+
+export interface AuditQuery {
+  actor_type?: 'user' | 'system'
+  actor_id?: number
+  account_id?: number
+  action?: string
+  from?: string
+  to?: string
+  page: number
+  page_size: number
+}
+
+export const auditApi = {
+  search: (query: AuditQuery) => api.get<EventPage>('/audit-events', { ...query }),
 }

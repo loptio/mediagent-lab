@@ -9,11 +9,20 @@
 1. 在 [Neon](https://neon.tech/) 建立專案，區域選 Singapore（和 Render 同區，延遲最低）。
 2. 在 Dashboard 的 **Connection string** 選 **Direct connection**（不要選 Pooled），複製 `postgresql://…neon.tech/neondb?sslmode=require` 這一串。程式會自動換成需要的驅動，原樣貼上即可。
 
-## 2. Neon Object Storage：建立圖片用的 bucket
+## 2. Neon Object Storage：圖片用的 bucket
 
-1. 在同一個 Neon 專案的 **Object Storage**，於 `production` 分支建立 bucket（例如 `mediagent-images`），存取等級選 **public_read**（建立後不能改；平台要能直接下載圖片）。
-2. 建立 S3 憑證：`token_id`（`nak_live_…`）是 Access Key ID，`s3_secret_access_key`（`nsk_live_…`）是 Secret Access Key。只會顯示一次，請存到密碼管理器。
-3. 記下：S3 端點網址、區域字串、bucket 名稱，以及公開物件網址的前綴（格式 `https://<branch-id>.storage.c-<N>.<region>.aws.neon.tech/<bucket>`）。
+已建立（2026-11-22）：MediAgent 專案的 `production` 分支、新加坡區，bucket `mediagent-media`，存取等級 public_read（平台要能直接下載圖片；建立後不能改）。非機密的值已經寫在 `render.yaml`：
+
+| 本專案的變數 | Neon 後台顯示的名稱 | 值 |
+|---|---|---|
+| `S3_ENDPOINT_URL` | `AWS_ENDPOINT_URL_S3` | `https://br-polished-meadow-bi41cq8t.storage.c-5.ap-southeast-1.aws.neon.tech` |
+| `S3_REGION` | `AWS_REGION` | `ap-southeast-1` |
+| `S3_BUCKET` | — | `mediagent-media` |
+| `MEDIA_BASE_URL` | — | `https://br-polished-meadow-bi41cq8t.storage.c-5.ap-southeast-1.aws.neon.tech/mediagent-media` |
+| `S3_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID`（`nak_live_…`） | 你自己保管，填在 Render |
+| `S3_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY`（`nsk_live_…`） | 你自己保管，填在 Render |
+
+要在本機試物件儲存時，把上面的值與憑證填進 `.env`，並設 `MEDIA_STORAGE_BACKEND=s3`；平常本機開發維持 `local`。
 
 ## 3. 產生平台憑證的加密金鑰
 
@@ -36,9 +45,7 @@
 | `CREDENTIAL_ENCRYPTION_KEYS` | 第 3 步產生的金鑰 |
 | `OAUTH_REDIRECT_BASE_URL` | `<服務網址>` |
 | `FRONTEND_ORIGIN` | `<服務網址>` |
-| `MEDIA_BASE_URL` | 第 2 步的公開物件網址前綴（`https://<branch-id>.storage…/<bucket>`） |
-| `S3_ENDPOINT_URL`、`S3_REGION`、`S3_BUCKET` | 第 2 步的端點、區域、bucket 名稱 |
-| `S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` | 第 2 步的 `nak_live_…`、`nsk_live_…` |
+| `S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` | 第 2 步的 `nak_live_…`、`nsk_live_…`（端點、區域、bucket、`MEDIA_BASE_URL` 已寫在 `render.yaml`） |
 | `THREADS_APP_ID`、`THREADS_APP_SECRET` | Meta 開發者網站上 Threads 使用情境的值（和本機 `.env` 相同） |
 
 網址要等服務建立後才知道：先隨便填，部署完成後到服務的 **Environment** 改成正確的網址，再按 **Save, rebuild, and deploy**。`JWT_SECRET`、`OAUTH_STATE_SECRET`、`CRON_SECRET` 由 Render 自動產生。

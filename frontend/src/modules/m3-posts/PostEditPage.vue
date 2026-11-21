@@ -20,6 +20,8 @@ import PublishPanel from '@/modules/m5-publishing/PublishPanel.vue'
 
 import CharCounter from './CharCounter.vue'
 import { charUsage } from './charCount'
+import ImageSection from './ImageSection.vue'
+import PreviewDialog from './PreviewDialog.vue'
 
 const props = defineProps<{ id?: number }>()
 
@@ -44,27 +46,36 @@ const accounts = computed(() => accountsQuery.data.value?.items ?? [])
 const content = ref('')
 const targetIds = ref<number[]>([])
 
+function sameIds(a: number[], b: number[]) {
+  return a.length === b.length && a.every((id) => b.includes(id))
+}
+
+// 伺服器資料更新時（例如附加圖片後重新讀取），只有表單沒有未儲存的變更才覆蓋，避免吃掉正在輸入的內容
 watch(
   post,
-  (value) => {
+  (value, old) => {
     if (!value) return
-    content.value = value.content
-    targetIds.value = value.targets.map((t) => t.id)
+    const wasClean =
+      !old || (content.value === old.content && sameIds(targetIds.value, old.targets.map((t) => t.id)))
+    if (value.id !== old?.id || wasClean) {
+      content.value = value.content
+      targetIds.value = value.targets.map((t) => t.id)
+    }
   },
   { immediate: true },
 )
 
 const savedTargetIds = computed(() => post.value?.targets.map((t) => t.id) ?? [])
 const contentChanged = computed(() => content.value !== (post.value?.content ?? ''))
-const targetsChanged = computed(() => {
-  const saved = new Set(savedTargetIds.value)
-  return targetIds.value.length !== saved.size || targetIds.value.some((id) => !saved.has(id))
-})
+const targetsChanged = computed(() => !sameIds(targetIds.value, savedTargetIds.value))
 const dirty = computed(() => contentChanged.value || targetsChanged.value)
 
 const isOwner = computed(() => isNew.value || post.value?.creator.id === auth.user?.id)
 const editableStatus = computed(() => isNew.value || ['DRAFT', 'SCHEDULED'].includes(post.value?.status ?? ''))
 const canEdit = computed(() => editableStatus.value && (auth.hasRole('publisher') || isOwner.value))
+// 複製為新草稿：任何狀態都可以；撰稿者只能複製自己的貼文（BR-18）
+const canCopy = computed(() => !isNew.value && (auth.hasRole('publisher') || isOwner.value))
+const previewOpen = ref(false)
 
 // 字數提示：有選目標就看目標的平台，還沒選就先顯示 Threads 與 Discord
 const counterPlatforms = computed<Platform[]>(() => {
@@ -82,6 +93,7 @@ function refresh() {
   void queryClient.invalidateQueries({ queryKey: ['post', postId] })
   void queryClient.invalidateQueries({ queryKey: ['posts'] })
   void queryClient.invalidateQueries({ queryKey: ['publish-records', postId] })
+  void queryClient.invalidateQueries({ queryKey: ['publish-history'] })
 }
 
 // ---------- 儲存：新貼文先建立草稿再設定目標；既有貼文只送有變更的部分 ----------
@@ -122,6 +134,15 @@ function discard() {
   content.value = post.value?.content ?? ''
   targetIds.value = [...savedTargetIds.value]
 }
+
+const copyMutation = useMutation({
+  mutationFn: () => postsApi.copy(postId.value),
+  onSuccess: async (copy) => {
+    ElMessage.success(`已複製為新草稿 #${copy.id}，請重新選擇目標平台帳號`)
+    void queryClient.invalidateQueries({ queryKey: ['posts'] })
+    await router.push({ name: 'post-edit', params: { id: copy.id } })
+  },
+})
 
 let deleted = false
 const deleteMutation = useMutation({
@@ -173,10 +194,19 @@ onBeforeRouteLeave(async () => {
         <h1>{{ isNew ? '新增貼文' : `貼文 #${id}` }}</h1>
         <StatusTag v-if="post" :status="post.status" />
       </div>
-      <div v-if="post" class="muted">
-        {{ post.creator.name }} 建立於 {{ formatTaipei(post.created_at) }}
+      <div v-if="post" class="header-side">
+        <span class="muted">{{ post.creator.name }} 建立於 {{ formatTaipei(post.created_at) }}</span>
+        <el-tooltip :disabled="!dirty && post.targets.length > 0" :content="dirty ? '請先儲存變更' : '請先選擇目標平台帳號並儲存'">
+          <span>
+            <el-button :disabled="dirty || post.targets.length === 0" @click="previewOpen = true">預覽各平台</el-button>
+          </span>
+        </el-tooltip>
+        <el-button v-if="canCopy" :loading="copyMutation.isPending.value" @click="copyMutation.mutate()">
+          複製為新草稿
+        </el-button>
       </div>
     </div>
+    <PreviewDialog v-if="post" v-model="previewOpen" :post-id="post.id" />
 
     <el-skeleton v-if="!isNew && postQuery.isPending.value" :rows="8" animated />
     <QueryError v-else-if="!isNew && postQuery.isError.value" :error="postQuery.error.value" @retry="postQuery.refetch()" />
@@ -211,6 +241,8 @@ onBeforeRouteLeave(async () => {
           :disabled="!canEdit"
         />
         <CharCounter :content="content" :platforms="counterPlatforms" />
+
+        <ImageSection :post="post" :can-edit="canEdit" @changed="refresh" />
 
         <h3 class="section">目標平台帳號</h3>
         <el-skeleton v-if="accountsQuery.isPending.value" :rows="2" animated />
@@ -251,6 +283,13 @@ onBeforeRouteLeave(async () => {
 </template>
 
 <style scoped>
+.header-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .title {
   display: flex;
   align-items: center;

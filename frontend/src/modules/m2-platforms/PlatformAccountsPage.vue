@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { platformAccountsApi } from '@/shared/api/endpoints'
+import { platformAccountsApi, type PlatformAccount } from '@/shared/api/endpoints'
 import { ERROR_MESSAGES } from '@/shared/api/errors'
 import { useAuthStore } from '@/shared/auth'
 import { AUTH_STATUS_LABELS, label, PLATFORM_LABELS } from '@/shared/labels'
@@ -36,7 +36,10 @@ onMounted(() => {
   void router.replace({ query: {} })
 })
 
-// ---------- Threads：取得授權網址後整頁導向平台 ----------
+// 用平台授權（OAuth）連結的平台；Discord 用 Webhook
+const OAUTH_PLATFORMS = new Set(['threads', 'instagram'])
+
+// ---------- Threads、Instagram：取得授權網址後整頁導向平台（重新連結時帶 platform_account_id） ----------
 const oauthMutation = useMutation({
   mutationFn: (args: { platform: string; accountId?: number }) =>
     platformAccountsApi.startOAuth(args.platform, args.accountId),
@@ -51,8 +54,19 @@ const WEBHOOK_PLACEHOLDER = 'https://discord.com/api/webhooks/…'
 const discordDialog = ref(false)
 const discordFormRef = ref<FormInstance>()
 const discordForm = reactive({ account_name: '', webhook_url: '' })
+// 有值時是「更換 Webhook」（FR-21 重新連結），沒有值時是新連結
+const relinkTarget = ref<PlatformAccount | null>(null)
+const discordTitle = computed(() =>
+  relinkTarget.value ? `更換「${relinkTarget.value.account_name}」的 Webhook` : '連結 Discord 頻道',
+)
 const discordRules: FormRules = {
-  account_name: [{ required: true, message: '請輸入顯示名稱', trigger: 'blur' }],
+  account_name: [
+    {
+      validator: (_rule, value: string, callback) =>
+        relinkTarget.value || value.trim() ? callback() : callback(new Error('請輸入顯示名稱')),
+      trigger: 'blur',
+    },
+  ],
   webhook_url: [
     { required: true, message: '請貼上 Webhook 網址', trigger: 'blur' },
     {
@@ -64,7 +78,8 @@ const discordRules: FormRules = {
   ],
 }
 
-function openDiscord() {
+function openDiscord(target: PlatformAccount | null = null) {
+  relinkTarget.value = target
   discordForm.account_name = ''
   discordForm.webhook_url = ''
   discordDialog.value = true
@@ -72,13 +87,15 @@ function openDiscord() {
 
 const discordMutation = useMutation({
   mutationFn: () =>
-    platformAccountsApi.linkDiscord({
-      platform: 'discord',
-      account_name: discordForm.account_name.trim(),
-      webhook_url: discordForm.webhook_url.trim(),
-    }),
+    relinkTarget.value
+      ? platformAccountsApi.relinkDiscord(relinkTarget.value.id, discordForm.webhook_url.trim())
+      : platformAccountsApi.linkDiscord({
+          platform: 'discord',
+          account_name: discordForm.account_name.trim(),
+          webhook_url: discordForm.webhook_url.trim(),
+        }),
   onSuccess: () => {
-    ElMessage.success('已連結 Discord 頻道')
+    ElMessage.success(relinkTarget.value ? '已更換 Webhook' : '已連結 Discord 頻道')
     discordDialog.value = false
     // Webhook 網址等同密碼，用完立即清掉（團隊規範 §9）
     discordForm.webhook_url = ''
@@ -90,6 +107,29 @@ async function submitDiscord() {
   if (!(await discordFormRef.value?.validate().catch(() => false))) return
   discordMutation.mutate()
 }
+
+// ---------- 移除（FR-08）：已排程貼文會把這個目標拿掉，只剩這個目標的貼文會改回草稿（BR-23） ----------
+const removeMutation = useMutation({
+  mutationFn: (account: PlatformAccount) => platformAccountsApi.remove(account.id),
+  onSuccess: (_, account) => {
+    ElMessage.success(`已移除「${account.account_name}」`)
+    void queryClient.invalidateQueries({ queryKey: ['platform-accounts'] })
+    void queryClient.invalidateQueries({ queryKey: ['posts'] })
+  },
+})
+
+async function remove(account: PlatformAccount) {
+  try {
+    await ElMessageBox.confirm(
+      `移除後不能再發文到「${account.account_name}」。草稿與已排程的貼文會拿掉這個目標，只剩這個目標的已排程貼文會改回草稿；已發佈的結果仍會保留。確定要移除嗎？`,
+      '移除平台帳號',
+      { confirmButtonText: '移除', cancelButtonText: '取消', type: 'warning', confirmButtonClass: 'el-button--danger' },
+    )
+  } catch {
+    return
+  }
+  removeMutation.mutate(account)
+}
 </script>
 
 <template>
@@ -97,7 +137,7 @@ async function submitDiscord() {
     <div class="page-header">
       <h1>平台帳號</h1>
       <div v-if="isAdmin" class="toolbar">
-        <el-button @click="openDiscord">連結 Discord 頻道</el-button>
+        <el-button @click="openDiscord()">連結 Discord 頻道</el-button>
         <el-button
           type="primary"
           :loading="oauthMutation.isPending.value"
@@ -135,24 +175,41 @@ async function submitDiscord() {
           <span v-else class="muted">不會過期</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="isAdmin" label="操作" width="140">
+      <el-table-column v-if="isAdmin" label="操作" width="200">
         <template #default="{ row }">
           <el-button
-            v-if="row.platform === 'threads'"
+            v-if="OAUTH_PLATFORMS.has(row.platform)"
             size="small"
             :type="row.auth_status === 'valid' ? 'default' : 'danger'"
-            :loading="oauthMutation.isPending.value"
-            @click="oauthMutation.mutate({ platform: 'threads', accountId: row.id })"
+            :loading="oauthMutation.isPending.value && oauthMutation.variables.value?.accountId === row.id"
+            @click="oauthMutation.mutate({ platform: row.platform, accountId: row.id })"
           >
             重新連結
+          </el-button>
+          <el-button
+            v-else
+            size="small"
+            :type="row.auth_status === 'valid' ? 'default' : 'danger'"
+            @click="openDiscord(row)"
+          >
+            更換 Webhook
+          </el-button>
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            :loading="removeMutation.isPending.value && removeMutation.variables.value?.id === row.id"
+            @click="remove(row)"
+          >
+            移除
           </el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="discordDialog" title="連結 Discord 頻道" width="min(480px, 92vw)">
+    <el-dialog v-model="discordDialog" :title="discordTitle" width="min(480px, 92vw)">
       <el-form ref="discordFormRef" :model="discordForm" :rules="discordRules" label-position="top" @submit.prevent>
-        <el-form-item label="顯示名稱" prop="account_name">
+        <el-form-item v-if="!relinkTarget" label="顯示名稱" prop="account_name">
           <el-input v-model="discordForm.account_name" placeholder="例如：社團公告" maxlength="100" />
         </el-form-item>
         <el-form-item label="Webhook 網址" prop="webhook_url">
@@ -168,7 +225,9 @@ async function submitDiscord() {
       </el-form>
       <template #footer>
         <el-button @click="discordDialog = false">取消</el-button>
-        <el-button type="primary" :loading="discordMutation.isPending.value" @click="submitDiscord">連結</el-button>
+        <el-button type="primary" :loading="discordMutation.isPending.value" @click="submitDiscord">
+          {{ relinkTarget ? '更換' : '連結' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

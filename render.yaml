@@ -31,15 +31,16 @@ services:
       # 圖片放在 Neon Object Storage（S3 相容、公開讀取的 bucket），平台直接從 bucket 網址下載
       - key: MEDIA_STORAGE_BACKEND
         value: s3
-      # bucket 的公開網址：https://<branch-id>.storage.c-<N>.<region>.aws.neon.tech/<bucket>
+      # Neon 專案 MediAgent、production 分支的 bucket（非機密值；憑證在下面由後台填）
       - key: MEDIA_BASE_URL
-        sync: false
+        value: https://br-polished-meadow-bi41cq8t.storage.c-5.ap-southeast-1.aws.neon.tech/mediagent-media
       - key: S3_ENDPOINT_URL
-        sync: false
+        value: https://br-polished-meadow-bi41cq8t.storage.c-5.ap-southeast-1.aws.neon.tech
       - key: S3_REGION
-        sync: false
+        value: ap-southeast-1
       - key: S3_BUCKET
-        sync: false
+        value: mediagent-media
+      # Neon 後台的 AWS_ACCESS_KEY_ID（nak_live_…）與 AWS_SECRET_ACCESS_KEY（nsk_live_…）
       - key: S3_ACCESS_KEY_ID
         sync: false
       - key: S3_SECRET_ACCESS_KEY
