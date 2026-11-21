@@ -19,6 +19,7 @@ docker compose exec api python -m seeds.seed_dev
 ```
 
 - 第二個指令建立三位開發用使用者（管理員、發佈者、撰稿者），並印出開發用密碼。
+- 前端：<http://localhost:8000/>，用上面的帳號登入（見下方「前端」）。
 - API 文件（Swagger UI）：<http://localhost:8000/docs>
 - 健康檢查：<http://localhost:8000/health>
 
@@ -64,6 +65,45 @@ docker compose --profile oauth up -d
 
 部署到會休眠的免費方案時，另外設定外部定時任務每 5 分鐘呼叫下面兩個端點（標頭 `X-Cron-Secret` 填 `.env` 的 `CRON_SECRET`）：`POST /api/v1/internal/publish-due`、`POST /api/v1/internal/publish-recovery`。
 
+### 前端
+
+`frontend/` 是 Vue 3 + Vite + TypeScript 的單頁應用，技術依《團隊協作規範》§3.2（Element Plus、TanStack Query、Pinia、Axios）。依 [foundation-plan D-06](docs/foundation-plan.md) 同源部署：`docker compose up --build` 會把前端建置進同一個映像檔，由 FastAPI 在 `/` 提供，API 仍在 `/api/v1`。
+
+| 畫面 | 誰看得到 | 內容 |
+|---|---|---|
+| 貼文列表 `/posts` | 全部 | 狀態篩選，每頁 20／50／100 筆 |
+| 貼文編輯 `/posts/:id` | 全部 | 內容與各平台字數上限、目標平台帳號、排程（台灣時間、5 分鐘整）、立即發佈與重試、發佈結果（發佈中每 3 秒更新） |
+| 平台帳號 `/platform-accounts` | 全部；連結限管理員 | 連結 Discord Webhook、連結或重新連結 Threads |
+| 幹部帳號 `/users` | 管理員 | 建立、停用、啟用 |
+
+撰稿者看不到「立即發佈」與「重試」，也不能為草稿設定排程；真正的權限檢查在後端。
+
+Access Token 只放在記憶體：重新整理頁面或 15 分鐘到期後要重新登入（換發 Token 的端點完成後再接上）。
+
+**開發**：需要 Node 24（版本見 `frontend/.nvmrc`）。後端照上面用 Docker 啟動，再開 Vite 開發伺服器，它會把 `/api` 轉給 `http://localhost:8000`，改程式會立即更新畫面：
+
+```bash
+cd frontend && corepack enable && pnpm install
+```
+
+```bash
+pnpm dev
+```
+
+打開 <http://localhost:5173/>。
+
+**檢查與建置**（CI 也跑同樣的指令）：
+
+```bash
+pnpm typecheck && pnpm test && pnpm build
+```
+
+**API 型別**：`src/shared/api/schema.d.ts` 由 openapi-typescript 依後端的 `/openapi.json` 產生，不要手改。後端 API 有變動時，啟動後端再執行：
+
+```bash
+pnpm gen:api
+```
+
 ### 測試
 
 測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
@@ -82,11 +122,12 @@ python -m pytest -q
 |---|---|
 | 13 張資料表與第一版 migration、只能新增的稽核表 | 圖片（上傳、移除、Instagram 裁切、物件儲存） |
 | 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | Instagram 的串接；Threads、Instagram 的重新連結 |
-| 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | 前端（另一個分支進行中） |
+| 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | 前端：圖片、預覽、稽核查詢、變更歷程的畫面 |
 | 貼文：建立、列表、修改、刪除、複製為新草稿、預覽 | 452 個驗收例子（pytest-bdd）、E2E |
 | 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | 部署 |
 | 三步發佈引擎、發佈紀錄與變更歷程、稽核查詢 | |
 | Discord Webhook 連結、重新連結與真實發文；Threads 授權連結與真實發文；移除平台帳號 | |
+| 前端：登入、貼文列表與編輯、排程、發佈與結果、平台帳號、幹部帳號 | |
 
 ## Project Info
 

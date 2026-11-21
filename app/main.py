@@ -1,14 +1,20 @@
-"""mediagent 後端：組裝 router、Request ID、錯誤處理與健康檢查。"""
+"""mediagent 後端：組裝 router、Request ID、錯誤處理與健康檢查，並提供前端建置後的靜態檔。"""
 
 import asyncio
 import contextlib
 import logging
+import os
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Match, Mount
+from starlette.types import Scope
 
 from .core.config import get_settings
 from .core.db import engine
@@ -125,3 +131,47 @@ def _register_adapters() -> None:
 
 _include_routers()
 _register_adapters()
+
+
+# ---------- 前端靜態檔（foundation-plan D-06 同源部署） ----------
+# Docker 映像檔把 frontend/dist 複製到 /srv/frontend/dist；本機沒有建置過前端時不掛載
+FRONTEND_DIST = Path(
+    os.environ.get("FRONTEND_DIST", Path(__file__).resolve().parents[1] / "frontend" / "dist")
+)
+
+
+class SPAStaticFiles(StaticFiles):
+    """找不到的頁面路徑（例如 /posts/12）回傳 index.html，交給前端路由；找不到的檔案（有副檔名）維持 404。"""
+
+    async def get_response(self, path: str, scope: Scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or "." in path.rsplit("/", 1)[-1]:
+                raise
+            response = await super().get_response("index.html", scope)
+        # index.html 每次都向伺服器確認，重新部署後才不會引用已不存在的舊檔名
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+class FrontendMount(Mount):
+    """掛在 / 但不接手 /api：API 路徑的 404、405 維持原本的 JSON 錯誤格式。"""
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        path = scope.get("path", "")
+        if path == "/api" or path.startswith("/api/"):
+            return Match.NONE, {}
+        return super().matches(scope)
+
+
+def mount_frontend(application: FastAPI, dist_dir: Path) -> None:
+    # 必須在所有 API router 之後加入，路由才會優先比對 API
+    if (dist_dir / "index.html").is_file():
+        application.router.routes.append(
+            FrontendMount("/", app=SPAStaticFiles(directory=dist_dir, html=True), name="frontend")
+        )
+
+
+mount_frontend(app, FRONTEND_DIST)
