@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     platform_mode: str = "real"
     log_level: str = "INFO"
 
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        """Neon、Render 給的連線字串是 postgresql:// 或 postgres://；改成 SQLAlchemy 要的 psycopg 3 驅動。"""
+        for prefix in ("postgresql://", "postgres://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
+
     @field_validator("credential_encryption_keys", mode="before")
     @classmethod
     def split_keys(cls, value: object) -> object:

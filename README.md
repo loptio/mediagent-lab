@@ -65,6 +65,10 @@ docker compose --profile oauth up -d
 
 部署到會休眠的免費方案時，另外設定外部定時任務每 5 分鐘呼叫下面兩個端點（標頭 `X-Cron-Secret` 填 `.env` 的 `CRON_SECRET`）：`POST /api/v1/internal/publish-due`、`POST /api/v1/internal/publish-recovery`。
 
+### 部署
+
+Render（`render.yaml`）＋ Neon 的免費方案，步驟見 [docs/deploy.md](docs/deploy.md)：建立資料庫、產生加密金鑰、用 Blueprint 建立服務、以 `python -m seeds.create_admin` 建立第一位管理員、在 Meta 登記回呼網址、設定外部定時觸發。
+
 ### 前端
 
 `frontend/` 是 Vue 3 + Vite + TypeScript 的單頁應用，技術依《團隊協作規範》§3.2（Element Plus、TanStack Query、Pinia、Axios）。依 [foundation-plan D-06](docs/foundation-plan.md) 同源部署：`docker compose up --build` 會把前端建置進同一個映像檔，由 FastAPI 在 `/` 提供，API 仍在 `/api/v1`。
