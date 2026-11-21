@@ -1,0 +1,51 @@
+# 本機開發環境：docker compose up
+name: mediagent-lab
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: mediagent
+      POSTGRES_PASSWORD: mediagent
+      POSTGRES_DB: mediagent
+    ports:
+      # 只綁定本機，不對區域網路開放
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediagent -d mediagent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    # 沒有 .env 也能啟動；本機預設值只限開發使用
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://mediagent:mediagent@db:5432/mediagent
+      # 開發模式允許用 X-Dev-User 標頭免密碼登入，預設關閉；需要時在 .env 設定 DEV_MODE=1
+      DEV_MODE: ${DEV_MODE:-0}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789}
+      CREDENTIAL_ENCRYPTION_KEYS: ${CREDENTIAL_ENCRYPTION_KEYS:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/srv/app
+      - ./alembic:/srv/alembic
+      - ./seeds:/srv/seeds
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  db-data:

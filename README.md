@@ -2,6 +2,62 @@
 
 > Multi-platform Post Sync & Scheduling Service for Student Clubs
 
+## 原型：本機啟動（mediagent-lab）
+
+這個 repo 是驗證設計用的原型，依 [docs/foundation-plan.md](docs/foundation-plan.md) 的決策實作。目前完成的是**主線**：登入 → 寫貼文 → 選目標 → 立即發佈 → 查看發佈結果，以及以 Webhook 連結 Discord 並真實發文。
+
+### 啟動
+
+需要 Docker Desktop。
+
+```bash
+docker compose up --build -d
+```
+
+```bash
+docker compose exec api python -m seeds.seed_dev
+```
+
+- 第二個指令建立三位開發用使用者（管理員、發佈者、撰稿者），並印出開發用密碼。
+- API 文件（Swagger UI）：<http://localhost:8000/docs>
+- 健康檢查：<http://localhost:8000/health>
+
+平台憑證會加密保存，所以要先在 `.env` 設定 `CREDENTIAL_ENCRYPTION_KEYS`（格式與產生方式見 [.env.example](.env.example)）；沒有設定時，連結平台帳號會失敗。
+
+### 走一次主線
+
+在 Swagger UI 依序操作（登入後把 `access_token` 貼到右上角的 **Authorize**）：
+
+1. `POST /api/v1/auth/login`：用 `admin@club.test` 登入。
+2. `POST /api/v1/platform-accounts`：`{"platform": "discord", "account_name": "公告", "webhook_url": "<你的 Discord Webhook 網址>"}`。Webhook 網址等同密碼，只會加密保存，不會出現在任何回應或 Log 中。
+3. 改用 `publisher@club.test` 登入並重新 Authorize。
+4. `POST /api/v1/posts`：`{"content": "本週三 19:00 社課"}`，記下回傳的 `id`。
+5. `PUT /api/v1/posts/{id}/targets`：`{"platform_account_ids": [<第 2 步回傳的 id>]}`。
+6. `POST /api/v1/posts/{id}/publish-jobs`：`{"type": "immediate"}`，回應 202。
+7. `GET /api/v1/posts/{id}/publish-records`：狀態為 `SUCCEEDED`，並附上 Discord 訊息連結。
+
+### 測試
+
+測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+```bash
+python -m pytest -q
+```
+
+### 目前的範圍
+
+| 已完成 | 尚未實作 |
+|---|---|
+| 13 張資料表與第一版 migration、只能新增的稽核表 | 排程、重試、逾時恢復 |
+| 登入（JWT + session）、三級角色 | 帳號管理、登入鎖定、IP 限流 |
+| 建立貼文、貼文列表、設定目標 | 修改與刪除貼文、圖片、預覽 |
+| 三步發佈引擎、發佈紀錄與變更歷程、稽核寫入 | Threads 與 Instagram 的真實串接 |
+| Discord Webhook 連結與真實發文 | 前端、452 個驗收例子（pytest-bdd） |
+
 ## Project Info
 
 | 項目 | 內容 |
