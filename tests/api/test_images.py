@@ -114,6 +114,36 @@ def test_instagram_gets_a_plain_upright_jpeg_even_when_no_crop_is_needed(client,
     assert served(client, image["public_url"]).content == data  # 原圖照上傳的檔案保存
 
 
+def test_upload_still_works_when_the_plain_copy_would_be_too_large(client, db, monkeypatch):
+    """不需要裁切、只是為了 Instagram 重新編碼的版本超過大小上限時，退回用原圖，
+    不讓只發 Threads、Discord 的貼文因此無法附圖。"""
+    from app.m3_posts import images
+
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+    monkeypatch.setattr(images, "MAX_OUTPUT_BYTES", 100)
+
+    response = upload(client, headers, post_id, rotated_jpeg(1200, 1000))
+
+    assert response.status_code == 201, response.text
+    image = response.json()
+    assert (image["ig_public_url"], image["ig_cropped"]) == (image["public_url"], False)
+
+
+def test_upload_is_refused_when_a_needed_crop_is_too_large(client, db, monkeypatch):
+    from app.m3_posts import images
+
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+    monkeypatch.setattr(images, "MAX_OUTPUT_BYTES", 100)
+
+    response = upload(client, headers, post_id, jpeg(1080, 1920))
+
+    assert (response.status_code, response.json()["code"]) == (422, "IMAGE_TOO_LARGE")
+
+
 @pytest.mark.parametrize(
     ("data", "status", "code"),
     [

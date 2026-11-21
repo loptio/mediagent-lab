@@ -7,6 +7,10 @@ describe('describeError', () => {
     expect(describeError({ code: 'SCHEDULE_TIME_NOT_ALIGNED', message: 'x' })).toContain('5 分鐘整')
   })
 
+  it('平台授權失敗時提醒 Instagram 只能勾選一個帳號', () => {
+    expect(describeError({ code: 'PLATFORM_AUTH_FAILED', message: 'x' })).toContain('只勾選一個')
+  })
+
   it('沒有對照的錯誤碼改用後端的 message', () => {
     expect(describeError({ code: 'SOMETHING_NEW', message: '後端的說明' })).toBe('後端的說明')
   })
