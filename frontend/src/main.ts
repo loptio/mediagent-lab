@@ -34,10 +34,11 @@ const queryClient = new QueryClient({
   }),
 })
 
-// 登入失效時清掉快取，下一位登入的人不會看到上一位的資料（例如只有管理員看得到的平台錯誤訊息）
+// Access Token 過期時先換發；換發也失敗代表登入已失效，清掉快取，下一位登入的人不會看到上一位的資料
 const auth = useAuthStore(pinia)
 installAuthHooks({
   getToken: () => auth.token,
+  refresh: () => auth.refresh(),
   onUnauthenticated: () => {
     queryClient.clear()
     redirectToLogin()

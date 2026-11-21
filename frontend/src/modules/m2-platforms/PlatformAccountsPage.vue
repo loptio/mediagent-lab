@@ -108,7 +108,7 @@ async function submitDiscord() {
       </div>
     </div>
     <p v-if="isAdmin" class="muted intro">
-      連結 Threads 會前往 Threads 授權頁，完成後自動回到這裡（回來後可能需要重新登入）。
+      連結 Threads 會前往 Threads 授權頁，完成後自動回到這裡並顯示結果。
     </p>
 
     <el-skeleton v-if="isPending" :rows="4" animated />
