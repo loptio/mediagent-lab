@@ -114,7 +114,7 @@ pnpm gen:api
 - `POST /api/v1/posts/{id}/image`（`multipart/form-data`，欄位 `file`）：一則貼文一張 JPEG，最多 8,000,000 位元組。比例超出 4:5～1.91:1 時自動從中間裁出 Instagram 版本（BR-06）。
 - 選 Instagram 為目標時必須先附圖；目標含 Instagram 時不能移除圖片（BR-05）。
 - Discord 以附件上傳圖片，本機就能發；Threads、Instagram 由平台下載圖片，`.env` 的 `MEDIA_BASE_URL` 必須是平台連得到的公開 https 網址，否則排程或發佈時回 `422 IMAGE_URL_NOT_PUBLIC`。
-- 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案；正式環境 `db` 存在 Neon 的 `media_blob` 表（不需要另外申請物件儲存），兩種都由後端 `/media/{key}` 提供。
+- 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案，由後端 `/media/{key}` 提供；正式環境 `s3` 放在 Neon Object Storage 公開讀取的 bucket，平台直接從 bucket 網址下載；`db`（存在 PostgreSQL）保留為備案。
 
 ### E2E 測試
 
@@ -171,16 +171,16 @@ python -m pytest -q
 | 已完成 | 尚未實作 |
 |---|---|
 | 14 張資料表與 migration、只能新增的稽核表 | Instagram 的真實串接（需要 Instagram 專業帳號） |
-| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | 部署（圖片的公開網址隨部署而來） |
+| 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | 部署（Render 帳號與第一次部署） |
 | 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | |
 | 貼文：建立、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片 | |
-| 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | 部署 |
+| 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | |
 | 三步發佈引擎、發佈紀錄與變更歷程、稽核查詢 | |
 | Discord：連結、重新連結、真實發文（含圖片附件）；Threads：授權連結、重新連結、真實發文 | |
 | 452 個驗收例子：447 通過、5 待確認 | |
 | 前端：登入、貼文列表與編輯（圖片、預覽、排程、發佈與結果、變更歷程、複製）、平台帳號、幹部帳號、稽核紀錄 | |
 | E2E：三個使用情境（Playwright，mock 平台） | |
-| 圖片：本機檔案或 PostgreSQL（Neon）兩種儲存 | |
+| 圖片：本機檔案、Neon Object Storage（S3）或 PostgreSQL 三種儲存 | |
 
 ## Project Info
 

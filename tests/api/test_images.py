@@ -381,3 +381,39 @@ def test_removing_a_shared_image_from_both_posts_at_once_deletes_it(db, media_di
     db.expire_all()
     assert errors == []
     assert db.get(models.MediaFile, media_id) is None
+
+
+def test_images_can_live_in_object_storage(client, db, monkeypatch, media_dir):
+    """正式環境（Neon Object Storage）：圖片放在公開讀取的 bucket，平台直接從 bucket 的網址下載。"""
+    import boto3
+    from moto import mock_aws
+
+    settings = get_settings()
+    base = "https://br-test.storage.c-1.ap-southeast-1.aws.neon.tech/mediagent-images"
+    for name, value in {
+        "media_storage_backend": "s3",
+        "s3_endpoint_url": "",
+        "s3_region": "us-east-1",
+        "s3_bucket": "mediagent-images",
+        "s3_access_key_id": "testing",
+        "s3_secret_access_key": "testing",
+        "media_base_url": base,
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    with mock_aws():
+        s3 = boto3.client("s3", region_name="us-east-1")
+        s3.create_bucket(Bucket="mediagent-images")
+        seed_club(db)
+        headers = login(client, "pr@club.tw")
+        post_id = draft(client, headers)
+
+        image = upload(client, headers, post_id, jpeg(1080, 1920)).json()
+
+        assert image["public_url"].startswith(f"{base}/") and image["ig_public_url"].startswith(f"{base}/")
+        keys = {obj["Key"] for obj in s3.list_objects_v2(Bucket="mediagent-images")["Contents"]}
+        assert len(keys) == 2 and list(media_dir.rglob("*.jpg")) == []
+        key = image["public_url"].rsplit("/", 1)[1]
+        redirect = client.get(f"/media/{key}", follow_redirects=False)
+        assert (redirect.status_code, redirect.headers["location"]) == (307, image["public_url"])
+        client.delete(f"{API}/posts/{post_id}/image", headers=headers)
+        assert s3.list_objects_v2(Bucket="mediagent-images").get("KeyCount") == 0

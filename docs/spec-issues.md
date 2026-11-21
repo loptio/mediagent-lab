@@ -24,5 +24,5 @@
 | B8 | 重試被拒絕的說明 | `NOTHING_TO_RETRY` 的 `detail.hints` 為 `[{platform_account_id, account_name, reason}]`，`reason` 沿用稽核的跳過原因 | API 設計只寫了 `detail.hints`，沒有格式 |
 | B9 | 逾時恢復的稽核 | 沒有自動重送時補一筆系統的「發佈貼文」；有自動重送時寫一筆「自動重試發佈」，原因代碼 `PLATFORM_CONFIRMED_NOT_PUBLISHED` | 規格待確認事項 §5 #2 尚未決定 |
 | B10 | 「誰正在處理這一筆」的租約長度 | 270 秒（單筆總時限 180 秒＋發文與確認各一次呼叫＋餘裕），不是 D-01 的 3 分鐘 | 發文與確認可能在 180 秒時限之後才結束 |
-| B11 | 正式環境的圖片儲存 | 存在 Neon 的 `media_blob` 表，由服務的 `/media` 提供（2026-11-22 決定，不用 Cloudflare R2） | R2 開通需要信用卡 |
+| B11 | 正式環境的圖片儲存 | Neon Object Storage（S3 相容、公開讀取的 bucket）；PostgreSQL 的 `media_blob` 保留為備案（2026-11-22 決定，不用 Cloudflare R2） | R2 開通需要信用卡；Neon 免費 5 GB |
 | B12 | 修改已排程貼文 | 依 BR-24 完整檢查發佈限制，包含目標的授權狀態 | 規格條文如此；授權在排程後過期時，要先處理目標才能改文字 |
