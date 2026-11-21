@@ -1,4 +1,5 @@
-# 本機開發環境：docker compose up
+# 本機開發環境：docker compose up --build
+# 映像檔已包含建置好的前端，打開 http://localhost:8000/ 即可使用；改前端時請用 Vite 開發伺服器（見 README）
 name: mediagent-lab
 
 services:
@@ -31,6 +32,8 @@ services:
       DEV_MODE: ${DEV_MODE:-0}
       JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789}
       CREDENTIAL_ENCRYPTION_KEYS: ${CREDENTIAL_ENCRYPTION_KEYS:-}
+      # 平台授權完成後導回前端的 /platform-accounts；前端由同一個服務在 / 提供
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8000}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

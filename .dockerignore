@@ -1,0 +1,11 @@
+# 不送進 Docker 建置環境：密鑰、本機套件、建置產物與快取
+.env
+.git
+.venv
+venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.superpowers
+frontend/node_modules
+frontend/dist

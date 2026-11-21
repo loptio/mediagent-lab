@@ -1,0 +1,47 @@
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', 'Segoe UI',
+    sans-serif;
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color-page);
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.page-header h1 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.clickable-rows .el-table__row {
+  cursor: pointer;
+}
