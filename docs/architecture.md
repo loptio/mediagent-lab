@@ -54,7 +54,7 @@
 |---|---|
 | 課程統一技術：Python、FastAPI、PostgreSQL、pytest、GitHub Actions、Docker、Render、Neon | 技術選擇固定 |
 | 免費雲端方案 | 後端閒置會休眠，不能常駐排程；Render 磁碟不保存檔案 |
-| Threads、Instagram 從公開網址讀取圖片 | 正式環境圖片存在 PostgreSQL（Neon）的 `media_blob` 表，由後端 `/media/{key}` 以公開 https 網址提供 |
+| Threads、Instagram 從公開網址讀取圖片 | 正式環境圖片放在 Neon Object Storage（S3 相容、公開讀取的 bucket），平台直接從 bucket 網址下載 |
 | 課程進度：W06 OpenAPI、W07 架構與資料模型、W13 部署 | 共用核心與合約須在 W07 前完成 |
 | 使用量小（單一社團） | 單一後端實例；不需要快取、訊息佇列 |
 
@@ -73,7 +73,7 @@ flowchart LR
     FE[前端<br/>Vue 3 單頁應用]
     BE[後端<br/>FastAPI]
     DB[(PostgreSQL<br/>Neon)]
-    OS[(圖片<br/>media_blob 表，/media 提供)]
+    OS[(Neon Object Storage<br/>圖片公開網址)]
     CRON[GitHub Actions<br/>定時任務]
     MON[外部監控]
     TH[Threads API]
@@ -107,7 +107,7 @@ flowchart LR
 |---|---|---|---|
 | 本機開發 | 開發與測試 | Docker Compose：PostgreSQL + 後端 + 前端；圖片存本機 volume；平台使用 MockAdapter | feature 分支 |
 | CI | 自動測試與建置檢查 | GitHub Actions + PostgreSQL service；lint、型別檢查、pytest（含 pytest-bdd）、Docker build；只用 MockAdapter | 每個 PR |
-| 正式環境 | Demo 與實際使用 | Render Web Service（以 `Dockerfile` 部署，前後端同源）+ Neon（含圖片的 `media_blob` 表） | `main`，merge 後自動部署 |
+| 正式環境 | Demo 與實際使用 | Render Web Service（以 `Dockerfile` 部署，前後端同源）+ Neon（PostgreSQL 與 Object Storage） | `main`，merge 後自動部署 |
 
 ### 3.2 部署圖
 
@@ -125,7 +125,7 @@ flowchart TB
     end
 
     NEON[(Neon PostgreSQL)]
-    OBJ[(Neon 的 media_blob 表)]
+    OBJ[(Neon Object Storage)]
     UR[UptimeRobot]
 
     REPO -- main 更新 --> SS
@@ -538,7 +538,7 @@ class PlatformAdapter(Protocol):
 flowchart LR
     UP[附加圖片] --> MS{MediaStorage}
     MS -- 本機、測試 --> LS[LocalMediaStorage<br/>media volume]
-    MS -- 正式環境 --> OS[DatabaseMediaStorage<br/>Neon 的 media_blob 表]
+    MS -- 正式環境 --> OS[S3MediaStorage<br/>Neon Object Storage]
     UP --> MF[(media_file)]
     PI[(post_image)] -- original_media_id / ig_media_id --> MF
 ```
@@ -803,7 +803,7 @@ sequenceDiagram
 | # | 議題 | 建議 |
 |---|---|---|
 | 1 | 跨站 Cookie 是否能在所有瀏覽器使用（Refresh Token） | W09 實測；`onrender.com` 屬 Public Suffix，若 Safari ITP 阻擋跨站 Cookie，優先改用自訂同源網域，或以請求／回應 body 傳遞 Refresh Token 作為備案 |
-| 2 | 圖片物件儲存服務 | **已決定（2026-11-22）**：不用 Cloudflare R2（開通需綁信用卡），圖片存在 Neon 的 `media_blob` 表（`MEDIA_STORAGE_BACKEND=db`），由後端 `/media/{key}` 提供公開網址；Neon 免費 0.5 GB，約可存數百張壓縮後的圖片。原評估：Cloudflare R2（10 GB 免費額度、免流量費 $0 egress、S3 相容且支援公開網址），W08 實測 Threads、Instagram 讀取 |
+| 2 | 圖片物件儲存服務 | **已決定（2026-11-22）**：使用 Neon Object Storage（Neon 內建、S3 相容、免費 5 GB、不需信用卡），bucket 設為公開讀取，`MEDIA_STORAGE_BACKEND=s3`。曾評估 Cloudflare R2（開通需綁信用卡）與把圖片存在 PostgreSQL 的 `media_blob` 表（保留為備案 `db`）。Threads、Instagram 能否讀取 Neon 公開網址待部署後實測 |
 | 3 | 是否建立 `dev` 分支的測試環境 | 若免費額度允許，建議建立 |
 | 4 | 平台限制實際數值（字數算法、圖片寬高） | W08 查證後補 `#TODO` 規則 |
 | 5 | 《API 設計》§5 的 3 項待確認 | 規格補充前先依暫定做法 |

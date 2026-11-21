@@ -376,8 +376,10 @@ app/m4_scheduling/
 | `INSTAGRAM_APP_ID`、`INSTAGRAM_APP_SECRET` | Instagram OAuth |
 | `OAUTH_REDIRECT_BASE_URL` | OAuth 回呼的後端網址 |
 | `FRONTEND_ORIGIN` | CORS 與 OAuth 完成後導回的前端網址 |
-| `MEDIA_STORAGE_BACKEND` | `local`（本機檔案）或 `db`（正式環境，圖片存在 Neon 的 `media_blob` 表） |
-| `MEDIA_BASE_URL` | 平台下載圖片用的網址前綴；正式環境為 `https://<Render 服務>.onrender.com/media` |
+| `MEDIA_STORAGE_BACKEND` | `local`（本機檔案）、`s3`（正式環境，Neon Object Storage）或 `db`（備案：存在 PostgreSQL 的 `media_blob` 表） |
+| `MEDIA_BASE_URL` | 平台下載圖片用的網址前綴；`s3` 時為 bucket 的公開網址 `https://<branch-id>.storage.c-<N>.<region>.aws.neon.tech/<bucket>` |
+| `S3_ENDPOINT_URL`、`S3_REGION`、`S3_BUCKET` | Neon Object Storage 的端點、區域與 bucket 名稱 |
+| `S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` | Neon Object Storage 的憑證（`nak_live_…`、`nsk_live_…`），只放在 `.env` 與 Render |
 | `DEV_MODE` | 開發模式（正式環境必須為 0） |
 | `LOG_LEVEL`、`PORT` | Log 等級；服務埠號 |
 

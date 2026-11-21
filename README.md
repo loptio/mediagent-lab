@@ -113,7 +113,7 @@ pnpm gen:api
 - `POST /api/v1/posts/{id}/image`（`multipart/form-data`，欄位 `file`）：一則貼文一張 JPEG，最多 8,000,000 位元組。比例超出 4:5～1.91:1 時自動從中間裁出 Instagram 版本（BR-06）。
 - 選 Instagram 為目標時必須先附圖；目標含 Instagram 時不能移除圖片（BR-05）。
 - Discord 以附件上傳圖片，本機就能發；Threads、Instagram 由平台下載圖片，`.env` 的 `MEDIA_BASE_URL` 必須是平台連得到的公開 https 網址，否則排程或發佈時回 `422 IMAGE_URL_NOT_PUBLIC`。
-- 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案；正式環境 `db` 存在 Neon 的 `media_blob` 表（不需要另外申請物件儲存），兩種都由後端 `/media/{key}` 提供。
+- 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案，由後端 `/media/{key}` 提供；正式環境 `s3` 放在 Neon Object Storage 公開讀取的 bucket，平台直接從 bucket 網址下載；`db`（存在 PostgreSQL）保留為備案。
 
 ### 測試
 
@@ -147,7 +147,7 @@ python -m pytest -q
 | Discord：連結、重新連結、真實發文（含圖片附件）；Threads：授權連結、重新連結、真實發文 | |
 | 452 個驗收例子：447 通過、5 待確認 | |
 | 前端：登入、貼文列表與編輯、排程、發佈與結果、平台帳號、幹部帳號 | |
-| 圖片：本機檔案或 PostgreSQL（Neon）兩種儲存 | |
+| 圖片：本機檔案、Neon Object Storage（S3）或 PostgreSQL 三種儲存 | |
 
 ## Project Info
 

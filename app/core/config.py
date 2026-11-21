@@ -54,10 +54,17 @@ class Settings(BaseSettings):
     # 有前端時，授權完成後導回這個來源的 /platform-accounts；沒有設定時顯示後端內建的結果頁
     frontend_origin: str = ""
 
-    # 圖片：本機存放目錄，以及平台用來讀取圖片的網址前綴。
-    # Threads、Instagram 由平台主動下載圖片，正式環境必須是公開網址（例如 https://media.example.com）
-    # local：存成檔案（本機、測試）；db：存在 PostgreSQL 的 media_blob 表（正式環境，Neon 免費方案）
+    # 圖片：本機存放目錄，以及平台用來讀取圖片的網址前綴（s3 時是 bucket 的公開網址）。
+    # Threads、Instagram 由平台主動下載圖片，正式環境必須是公開 https 網址
+    # local：存成檔案（本機、測試）；s3：S3 相容的物件儲存（正式環境：Neon Object Storage）；
+    # db：存在 PostgreSQL 的 media_blob 表（沒有物件儲存時的備案）
     media_storage_backend: str = "local"
+    # 物件儲存（MEDIA_STORAGE_BACKEND=s3）：端點、區域、bucket 與憑證；端點空白時使用 AWS 預設
+    s3_endpoint_url: str = ""
+    s3_region: str = ""
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
     media_dir: str = "media"
     media_base_url: str = "/media"
 

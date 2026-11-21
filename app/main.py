@@ -82,12 +82,17 @@ async def request_id_middleware(request: Request, call_next):
 @app.get("/media/{key}", include_in_schema=False)
 def media(key: str):
     """貼文圖片（本機檔案或資料庫）。網址是隨機的 storage key，平台發文時從這裡下載。"""
-    from fastapi.responses import FileResponse, Response
+    from fastapi.responses import FileResponse, RedirectResponse, Response
 
-    from .core.media import LocalMediaStorage, get_storage
+    from .core.media import KEY_PATTERN, LocalMediaStorage, S3MediaStorage, get_storage
 
     not_found = JSONResponse(status_code=404, content={"code": "NOT_FOUND", "message": "找不到圖片"})
     storage = get_storage()
+    if isinstance(storage, S3MediaStorage):
+        # 物件儲存是公開讀取：轉到 bucket 的網址，不經過後端傳送圖片
+        if not KEY_PATTERN.fullmatch(key):
+            return not_found
+        return RedirectResponse(storage.url(key), status_code=307)
     if isinstance(storage, LocalMediaStorage):
         path = storage.path(key)
         if path is None or not path.is_file():

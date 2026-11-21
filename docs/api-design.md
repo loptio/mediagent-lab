@@ -115,7 +115,7 @@ Response：
 | 35 | GET | `/health` | 公開 | 200 | — | 維運 | D |
 
 - `/internal/*` 需帶 `X-Cron-Secret`，不列入公開文件（`include_in_schema=False`）。
-- `GET /media/{storage_key}` 提供貼文圖片（`MEDIA_STORAGE_BACKEND=local` 讀檔案、`db` 讀 `media_blob` 表），不需要登入；Threads、Instagram 發文時從這裡下載圖片。
+- `GET /media/{storage_key}` 提供貼文圖片：`local` 讀檔案、`db` 讀 `media_blob` 表、`s3` 轉址（307）到物件儲存的公開網址；不需要登入。Threads、Instagram 發文時直接從圖片的公開網址下載。
 
 ---
 
