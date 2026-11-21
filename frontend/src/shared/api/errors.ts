@@ -49,7 +49,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   SCHEDULE_TIME_NOT_ALIGNED: '排程時間必須是 5 分鐘整，例如 12:00、12:05',
   NOTHING_TO_RETRY: '沒有可以重試的平台帳號',
   WEBHOOK_INVALID: 'Discord Webhook 網址無效，請確認網址是否完整',
-  PLATFORM_AUTH_FAILED: '平台授權失敗，請再試一次',
+  PLATFORM_AUTH_FAILED: '平台授權失敗，請再試一次；Instagram 請在授權視窗只勾選一個專業帳號',
   VERIFICATION_UNAVAILABLE: '暫時無法向平台確認，請稍後再試',
   TOO_MANY_LOGIN_ATTEMPTS: '登入嘗試次數過多，請稍後再試',
   INTERNAL_ERROR: '系統發生未預期的錯誤，請稍後再試',

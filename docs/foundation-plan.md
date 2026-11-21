@@ -431,8 +431,8 @@ D-02 有兩處**說明文字**提到「30 秒」，不是步驟，但 Rule 標�
 | 4 | Instagram 的登入流程、專業帳號的要求、token 期限（已查證：改用 Facebook 企業版登入，Token 預設不過期） | D-05 |
 | 5 | Discord Webhook 加 `?wait=true` 的回應內容、附件上傳 | D-12 |
 | 6 | 各平台字數怎麼算。Threads 官方文件說 emoji 以 UTF-8 位元組計算 | 補上驗收例子的 `#TODO` |
-| 7 | OAuth 回呼網址是否必須是 HTTPS。Postiz 的程式對非 HTTPS 網址做了特別處理，看起來是必須的 | 本機開發要用隧道，或直接在正式環境測 OAuth |
-| 8 | Render 免費方案：每月免費時數夠不夠整月不休眠、背景工作是否正常 | D-06、D-07；不夠時改用自備主機加隧道 |
+| 7 | OAuth 回呼網址是否必須是 HTTPS。Postiz 的程式對非 HTTPS 網址做了特別處理，看起來是必須的（已查證：必須是 HTTPS；Threads 接受 `https://localhost`，本機用 Caddy 測過；Instagram 的登入設定不接受 localhost，只能在正式環境授權） | 本機開發要用隧道，或直接在正式環境測 OAuth |
+| 8 | Render 免費方案：每月免費時數夠不夠整月不休眠、背景工作是否正常（已設定：cron-job.org 每 5 分鐘呼叫，一個服務一個月約 744 小時，在免費的 750 小時內） | D-06、D-07；不夠時改用自備主機加隧道 |
 
 ---
 

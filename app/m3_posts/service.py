@@ -251,6 +251,22 @@ def _store(data: bytes, width: int, height: int) -> MediaFile:
     )
 
 
+def _instagram_version(data: bytes, size: tuple[int, int], ig_size: tuple[int, int]) -> bytes | None:
+    """需要裁切，或原圖是 Instagram 不收的格式（MPO、要依 EXIF 轉正）時，產生重新編碼的版本；
+    可以直接用原圖時回傳 None。只是重新編碼、沒有裁切的版本超過大小上限時也退回原圖：
+    不讓只發 Threads、Discord 的貼文因此無法附圖（Instagram 若不收，發佈時會回報原因）。"""
+    if ig_size != size:
+        return images.crop_center(data, *ig_size)
+    if images.instagram_ready(data):
+        return None
+    try:
+        return images.crop_center(data, *ig_size)
+    except DomainError as error:
+        if error.code != "IMAGE_TOO_LARGE":
+            raise
+        return None
+
+
 def attach_image(db: Session, user: UserAccount, post_id: int, data: bytes) -> ImageOut:
     """附加一張 JPEG（最多 8,000,000 位元組），同時產生 Instagram 版本（BR-03、BR-04、BR-06）。"""
     post = _editable_post(db, user, post_id)
@@ -265,9 +281,9 @@ def attach_image(db: Session, user: UserAccount, post_id: int, data: bytes) -> I
     try:
         original = _store(data, width, height)
         stored.append(original)
-        if (ig_width, ig_height) != (width, height) or not images.instagram_ready(data):
-            # 需要裁切，或原圖是 Instagram 不收的格式（MPO、要依 EXIF 轉正）：另存重新編碼的版本
-            instagram = _store(images.crop_center(data, ig_width, ig_height), ig_width, ig_height)
+        ig_data = _instagram_version(data, (width, height), (ig_width, ig_height))
+        if ig_data is not None:
+            instagram = _store(ig_data, ig_width, ig_height)
             stored.append(instagram)
         else:
             instagram = original  # 比例已符合：Instagram 版本就是原圖

@@ -28,4 +28,4 @@
 | B12 | 修改已排程貼文 | 依 BR-24 完整檢查發佈限制，包含目標的授權狀態 | 規格條文如此；授權在排程後過期時，要先處理目標才能改文字 |
 | B13 | Instagram 的授權方式 | 改用 Facebook 企業版登入（foundation-plan D-05 更新）；Token 預設不過期，授權到期時間為空 | 新建立的 Meta App 已經不能用 Instagram Login |
 | B14 | 一次授權分享多個 Instagram 帳號 | 拒絕（`PLATFORM_AUTH_FAILED`），請只分享一個 | 一次連結對應一個平台帳號；不猜要用哪一個 |
-| B15 | 比例已符合、但 Instagram 讀不了的原圖 | MPO 或帶 EXIF 旋轉的照片，另存一份重新編碼、轉正的 Instagram 版本；寬高相同，不算裁切 | Instagram 官方不接受 MPO；BR-06 的「與原圖相同」解讀為畫面相同 |
+| B15 | 比例已符合、但 Instagram 讀不了的原圖 | MPO 或帶 EXIF 旋轉的照片，另存一份重新編碼、轉正的 Instagram 版本；寬高相同，不算裁切。重新編碼後超過 8 MB 時退回用原圖（不讓只發其他平台的貼文無法附圖） | Instagram 官方不接受 MPO；BR-06 的「與原圖相同」解讀為畫面相同 |
