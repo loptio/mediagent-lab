@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.db import get_db
 from app.core.models import UserAccount
+from app.m3_posts.schemas import PostOut
 
 from . import service
-from .schemas import PublishRecordsOut, TargetsOut, TargetsUpdate
+from .schemas import PublishRecordsOut, ScheduleUpdate, TargetsOut, TargetsUpdate
 
 router = APIRouter(prefix="/posts", tags=["目標與排程"])
 
@@ -19,6 +20,26 @@ def set_targets(
     user: UserAccount = Depends(get_current_user),
 ):
     return service.set_targets(db, user, post_id, data.platform_account_ids)
+
+
+@router.put("/{post_id}/schedule", response_model=PostOut, summary="設定排程")
+def set_schedule(
+    post_id: int,
+    data: ScheduleUpdate,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user),
+):
+    """排程時間必須晚於現在，且是 5 分鐘整（例如 12:00、12:05）。時間到由系統自動發佈。"""
+    return service.set_schedule(db, user, post_id, data.scheduled_at)
+
+
+@router.delete("/{post_id}/schedule", response_model=PostOut, summary="取消排程")
+def cancel_schedule(
+    post_id: int,
+    db: Session = Depends(get_db),
+    user: UserAccount = Depends(get_current_user),
+):
+    return service.cancel_schedule(db, user, post_id)
 
 
 @router.get(
