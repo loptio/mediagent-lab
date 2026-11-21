@@ -85,6 +85,7 @@ def health() -> JSONResponse:
 
 def _include_routers() -> None:
     from .m1_accounts.router import router as accounts_router
+    from .m1_accounts.router import users_router
     from .m2_platforms.router import router as platforms_router
     from .m3_posts.router import router as posts_router
     from .m4_scheduling.router import router as scheduling_router
@@ -93,6 +94,7 @@ def _include_routers() -> None:
 
     for router in (
         accounts_router,
+        users_router,
         platforms_router,
         posts_router,
         scheduling_router,
