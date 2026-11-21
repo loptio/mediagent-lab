@@ -43,3 +43,31 @@ def health() -> JSONResponse:
     except Exception:
         return JSONResponse(status_code=503, content={"status": "degraded", "database": "error"})
     return JSONResponse(content={"status": "ok", "database": "ok"})
+
+
+def _include_routers() -> None:
+    from .m1_accounts.router import router as accounts_router
+    from .m2_platforms.router import router as platforms_router
+    from .m3_posts.router import router as posts_router
+    from .m4_scheduling.router import router as scheduling_router
+    from .m5_publishing.router import router as publishing_router
+
+    for router in (
+        accounts_router,
+        platforms_router,
+        posts_router,
+        scheduling_router,
+        publishing_router,
+    ):
+        app.include_router(router, prefix=API_PREFIX)
+
+
+def _register_adapters() -> None:
+    from .core import platforms
+
+    if get_settings().platform_mode == "mock":
+        platforms.register_mock_adapters()
+
+
+_include_routers()
+_register_adapters()
