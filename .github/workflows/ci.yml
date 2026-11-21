@@ -91,3 +91,53 @@ jobs:
       # 多階段建置：前端打包進後端映像檔（foundation-plan D-06）；只建置不推送
       - name: Build image
         run: docker build --tag mediagent:ci .
+
+  e2e:
+    name: E2E
+    # 只在指向 main 的 Pull Request 執行：用 Docker Compose（PLATFORM_MODE=mock）跑 docs/requirements.md 的三個情境，不會連到真實平台
+    if: github.event_name == 'pull_request'
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: e2e
+    env:
+      COMPOSE: docker compose -p mediagent-e2e -f ../docker-compose.yml -f docker-compose.e2e.yml
+    steps:
+      - uses: actions/checkout@v7
+      # 先在背景建置並啟動服務，同時安裝測試工具與瀏覽器，縮短總時間
+      - name: Start stack in background
+        run: nohup $COMPOSE up -d --build > /tmp/stack-up.log 2>&1 &
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: e2e/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: e2e/.nvmrc
+          cache: pnpm
+          cache-dependency-path: e2e/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Wait for stack
+        run: |
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:18100/health > /dev/null && exit 0
+            sleep 5
+          done
+          cat /tmp/stack-up.log
+          exit 1
+      - name: Run E2E
+        run: pnpm test
+      - name: Service logs
+        if: failure()
+        run: $COMPOSE logs --no-color --tail 300 api
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7

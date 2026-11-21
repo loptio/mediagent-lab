@@ -116,6 +116,37 @@ pnpm gen:api
 - Discord 以附件上傳圖片，本機就能發；Threads、Instagram 由平台下載圖片，`.env` 的 `MEDIA_BASE_URL` 必須是平台連得到的公開 https 網址，否則排程或發佈時回 `422 IMAGE_URL_NOT_PUBLIC`。
 - 圖片儲存以 `MEDIA_STORAGE_BACKEND` 切換：本機 `local` 存成檔案；正式環境 `db` 存在 Neon 的 `media_blob` 表（不需要另外申請物件儲存），兩種都由後端 `/media/{key}` 提供。
 
+### E2E 測試
+
+`e2e/` 用 Playwright 跑 [docs/requirements.md](docs/requirements.md) 第 3 節的三個使用情境：
+
+- 情境一：管理員連結 Discord 與 Threads，建立幹部帳號，換屆調整角色
+- 情境二：發佈者寫貼文、附 9:16 海報，選 Threads、Instagram、Discord，在預覽確認裁切，設定排程，時間到後看到三個貼文連結
+- 例外情境：Instagram 暫時無法連線 → 部分失敗 → 重試只重送 Instagram；失敗的帳號已移除 → 複製為新草稿再發佈
+
+測試環境是獨立的 Docker Compose 專案（`mediagent-e2e`，連接埠 18100 與 18443），平台一律使用 MockAdapter（`PLATFORM_MODE=mock`），就算本機有 `.env` 也不會連到真實平台。
+
+測試資料的做法：
+- Threads、Instagram 平台帳號直接寫進資料庫（`e2e/support/seed_accounts.py`）。
+- 排程到期：把 `scheduled_at` 改成過去，再帶 `X-Cron-Secret` 呼叫 `/internal/publish-due`。
+- 例外情境：帳號名稱以 `e2e-fail-once-` 開頭時，mock 平台第一次會回報「平台暫時無法連線」，之後才成功。
+
+需要 Docker 與 Node 24：
+
+```bash
+cd e2e && corepack enable && pnpm install && pnpm exec playwright install chromium
+```
+
+```bash
+pnpm stack:up && pnpm test
+```
+
+```bash
+pnpm stack:down
+```
+
+`stack:down` 會刪除測試資料；重跑前不一定要刪，測試用的名稱每次都不同。CI 只在指向 `main` 的 Pull Request 執行 E2E。
+
 ### 測試
 
 測試需要 PostgreSQL（`docker compose up -d db`），不會連到任何真實平台。
@@ -142,12 +173,13 @@ python -m pytest -q
 | 14 張資料表與 migration、只能新增的稽核表 | Instagram 的真實串接（需要 Instagram 專業帳號） |
 | 登入、登出、登出所有裝置、換發 Token；連續失敗鎖定、IP 限流、登入安全事件 | 部署（圖片的公開網址隨部署而來） |
 | 幹部帳號：查看、建立、調整角色、停用、啟用、解除鎖定 | |
-| 貼文：建立、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片 | E2E |
+| 貼文：建立、列表、修改、刪除、複製為新草稿、預覽、附加與移除圖片 | |
 | 目標、排程與取消、排程時間到自動發佈、重試、逾時恢復 | 部署 |
 | 三步發佈引擎、發佈紀錄與變更歷程、稽核查詢 | |
 | Discord：連結、重新連結、真實發文（含圖片附件）；Threads：授權連結、重新連結、真實發文 | |
 | 452 個驗收例子：447 通過、5 待確認 | |
 | 前端：登入、貼文列表與編輯（圖片、預覽、排程、發佈與結果、變更歷程、複製）、平台帳號、幹部帳號、稽核紀錄 | |
+| E2E：三個使用情境（Playwright，mock 平台） | |
 | 圖片：本機檔案或 PostgreSQL（Neon）兩種儲存 | |
 
 ## Project Info

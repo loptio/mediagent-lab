@@ -204,8 +204,17 @@ function skipReason(record: (typeof records.value)[number]) {
     </el-collapse>
 
     <el-dialog v-model="retryDialog" title="重試發佈" width="min(520px, 92vw)">
-      <p>只會重送下列失敗的平台帳號：</p>
-      <ul class="plan-list">
+      <el-alert
+        v-if="retryPlan.retry.length === 0"
+        type="info"
+        :closable="false"
+        show-icon
+        title="沒有可以重試的平台帳號"
+        description="已移除的平台帳號請改用「複製為新草稿」重新選擇目標；授權失效的請管理員重新連結後再重試。"
+        class="nothing-to-retry"
+      />
+      <p v-else>只會重送下列失敗的平台帳號：</p>
+      <ul v-if="retryPlan.retry.length" class="plan-list">
         <li v-for="record in retryPlan.retry" :key="record.id">
           {{ label(PLATFORM_LABELS, record.platform_account.platform) }}・{{ record.platform_account.account_name }}
           <span class="muted">（上次：{{ label(FAILURE_REASON_LABELS, record.failure_reason) }}）</span>
@@ -233,7 +242,7 @@ function skipReason(record: (typeof records.value)[number]) {
         <el-button @click="retryDialog = false">先不要</el-button>
         <el-button
           type="warning"
-          :disabled="retryPlan.needsChannelCheck.length > 0 && !channelChecked"
+          :disabled="retryPlan.retry.length === 0 || (retryPlan.needsChannelCheck.length > 0 && !channelChecked)"
           @click="confirmRetry"
         >
           重試 {{ retryPlan.retry.length }} 個平台帳號
@@ -278,6 +287,10 @@ function skipReason(record: (typeof records.value)[number]) {
 
 .history {
   margin-top: 12px;
+}
+
+.nothing-to-retry {
+  margin-bottom: 12px;
 }
 
 .plan-list {
