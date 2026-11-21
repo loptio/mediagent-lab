@@ -56,6 +56,8 @@ class Settings(BaseSettings):
 
     # 圖片：本機存放目錄，以及平台用來讀取圖片的網址前綴。
     # Threads、Instagram 由平台主動下載圖片，正式環境必須是公開網址（例如 https://media.example.com）
+    # local：存成檔案（本機、測試）；db：存在 PostgreSQL 的 media_blob 表（正式環境，Neon 免費方案）
+    media_storage_backend: str = "local"
     media_dir: str = "media"
     media_base_url: str = "/media"
 

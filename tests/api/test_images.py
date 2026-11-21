@@ -261,3 +261,21 @@ def test_platforms_that_download_images_need_a_public_https_url(client, db, monk
     discord_only = draft(client, headers, [accounts["discord"].id])
     upload(client, headers, discord_only)
     assert publish(client, headers, discord_only).status_code == 202  # Discord 以附件上傳，不需要公開網址
+
+
+def test_images_can_live_in_the_database(client, db, monkeypatch, media_dir):
+    """正式環境（Neon）把圖片存在資料表，由後端的 /media/{key} 提供；不寫任何檔案。"""
+    monkeypatch.setattr(get_settings(), "media_storage_backend", "db")
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+
+    image = upload(client, headers, post_id, jpeg(1080, 1920)).json()
+
+    response = served(client, image["ig_public_url"])
+    assert response.status_code == 200 and response.headers["content-type"] == "image/jpeg"
+    assert Image.open(io.BytesIO(response.content)).size == (1080, 1350)
+    assert list(media_dir.rglob("*.jpg")) == []
+    client.delete(f"{API}/posts/{post_id}/image", headers=headers)
+    db.expire_all()
+    assert db.scalars(select(models.MediaBlob)).all() == []

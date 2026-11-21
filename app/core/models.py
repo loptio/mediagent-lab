@@ -246,6 +246,19 @@ class MediaFile(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class MediaBlob(Base):
+    """圖片內容（MEDIA_STORAGE_BACKEND=db 時使用）。
+
+    正式環境不另外申請付費的物件儲存，圖片存在資料庫，由後端提供網址。
+    """
+
+    __tablename__ = "media_blob"
+
+    storage_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Post(Base):
     __tablename__ = "post"
     __table_args__ = (

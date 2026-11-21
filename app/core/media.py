@@ -1,12 +1,18 @@
-"""圖片儲存（architecture §5：MediaStorage 介面與 LocalMediaStorage）。
+"""圖片儲存（architecture §5：MediaStorage 介面）。兩種實作，介面相同，以 MEDIA_STORAGE_BACKEND 切換：
 
-本機開發把檔案放在 MEDIA_DIR，由後端在 /media/{key} 提供。正式環境要讓 Threads、Instagram 讀得到圖片，
-MEDIA_BASE_URL 必須是平台連得到的公開網址（例如物件儲存的網域）；換成物件儲存時只需要換掉這個類別。
+- local：存成 MEDIA_DIR 裡的檔案（本機開發、測試）。
+- db：存在 PostgreSQL 的 media_blob 表（正式環境；Neon 免費方案，不需要另外申請付費的物件儲存）。
+
+兩種都由後端在 /media/{key} 提供。Threads、Instagram 由平台主動下載圖片，
+所以 MEDIA_BASE_URL 必須是平台連得到的公開 https 網址（例如 https://<服務>.onrender.com/media）。
+平台來下載時一定是在發文，服務醒著，免費方案的休眠不影響。
 """
 
 import re
 import uuid
 from pathlib import Path
+
+from sqlalchemy import delete, select
 
 from .config import get_settings
 
@@ -46,6 +52,46 @@ class LocalMediaStorage:
         return f"{self.base_url}/{key}"
 
 
-def get_storage() -> LocalMediaStorage:
+class DatabaseMediaStorage:
+    """圖片內容存在 media_blob 表；每個操作各用一個短交易，和檔案儲存的行為一致。"""
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url.rstrip("/")
+
+    def save(self, data: bytes) -> str:
+        from .db import session_scope
+        from .models import MediaBlob
+
+        key = f"{uuid.uuid4().hex}.jpg"
+        with session_scope() as db:
+            db.add(MediaBlob(storage_key=key, data=data))
+        return key
+
+    def read(self, key: str) -> bytes:
+        from .db import session_scope
+        from .models import MediaBlob
+
+        if not KEY_PATTERN.fullmatch(key):
+            raise FileNotFoundError(key)
+        with session_scope() as db:
+            data = db.scalar(select(MediaBlob.data).where(MediaBlob.storage_key == key))
+        if data is None:
+            raise FileNotFoundError(key)
+        return bytes(data)
+
+    def delete(self, key: str) -> None:
+        from .db import session_scope
+        from .models import MediaBlob
+
+        with session_scope() as db:
+            db.execute(delete(MediaBlob).where(MediaBlob.storage_key == key))
+
+    def url(self, key: str) -> str:
+        return f"{self.base_url}/{key}"
+
+
+def get_storage() -> LocalMediaStorage | DatabaseMediaStorage:
     settings = get_settings()
+    if settings.media_storage_backend == "db":
+        return DatabaseMediaStorage(settings.media_base_url)
     return LocalMediaStorage(settings.media_dir, settings.media_base_url)

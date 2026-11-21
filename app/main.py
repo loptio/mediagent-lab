@@ -81,15 +81,25 @@ async def request_id_middleware(request: Request, call_next):
 
 @app.get("/media/{key}", include_in_schema=False)
 def media(key: str):
-    """本機儲存的圖片（正式環境改由物件儲存的公開網址提供）。"""
-    from fastapi.responses import FileResponse
+    """貼文圖片（本機檔案或資料庫）。網址是隨機的 storage key，平台發文時從這裡下載。"""
+    from fastapi.responses import FileResponse, Response
 
-    from .core.media import get_storage
+    from .core.media import LocalMediaStorage, get_storage
 
-    path = get_storage().path(key)
-    if path is None or not path.is_file():
-        return JSONResponse(status_code=404, content={"code": "NOT_FOUND", "message": "找不到圖片"})
-    return FileResponse(path, media_type="image/jpeg")
+    not_found = JSONResponse(status_code=404, content={"code": "NOT_FOUND", "message": "找不到圖片"})
+    storage = get_storage()
+    if isinstance(storage, LocalMediaStorage):
+        path = storage.path(key)
+        if path is None or not path.is_file():
+            return not_found
+        return FileResponse(path, media_type="image/jpeg")
+    try:
+        data = storage.read(key)
+    except FileNotFoundError:
+        return not_found
+    # 圖片內容不會變（換圖會產生新的 key），可以讓瀏覽器與平台長時間快取
+    cache = {"Cache-Control": "public, max-age=31536000, immutable"}
+    return Response(data, media_type="image/jpeg", headers=cache)
 
 
 @app.get("/health", tags=["維運"])

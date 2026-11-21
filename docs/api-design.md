@@ -115,7 +115,7 @@ Response：
 | 35 | GET | `/health` | 公開 | 200 | — | 維運 | D |
 
 - `/internal/*` 需帶 `X-Cron-Secret`，不列入公開文件（`include_in_schema=False`）。
-- 本機開發另有 `GET /media/{storage_key}` 提供本機圖片（只在 `MEDIA_STORAGE_BACKEND=local` 時啟用）。
+- `GET /media/{storage_key}` 提供貼文圖片（`MEDIA_STORAGE_BACKEND=local` 讀檔案、`db` 讀 `media_blob` 表），不需要登入；Threads、Instagram 發文時從這裡下載圖片。
 
 ---
 
