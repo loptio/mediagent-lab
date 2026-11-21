@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # 平台授權（OAuth）：Meta 開發者網站上 Threads 使用情境的 App ID 與密鑰
     threads_app_id: str = ""
     threads_app_secret: str = ""
+    # Instagram（Facebook 企業版登入）：Meta App 本身的 ID 與密鑰，加上登入設定（configuration）的 ID
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
+    instagram_login_config_id: str = ""
     # 平台導回時使用的後端網址（必須與 Meta 後台登記的 redirect URI 相同的來源）
     oauth_redirect_base_url: str = "http://localhost:8000"
     # 簽章 OAuth state 用；沒有設定時沿用 JWT_SECRET

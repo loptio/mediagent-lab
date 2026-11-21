@@ -147,14 +147,13 @@ def _register_adapters() -> None:
         platforms.register_mock_adapters()
         return
 
-    from .core.enums import Platform
     from .m2_platforms.adapters.discord import DiscordAdapter
+    from .m2_platforms.adapters.instagram import InstagramAdapter
     from .m2_platforms.adapters.threads import ThreadsAdapter
 
     platforms.register_adapter(DiscordAdapter())
     platforms.register_adapter(ThreadsAdapter())
-    # Instagram 的真實 Adapter 尚未實作：先提供內容限制，發佈時一律回報失敗
-    platforms.register_adapter(platforms.UnavailableAdapter(Platform.INSTAGRAM))
+    platforms.register_adapter(InstagramAdapter())
 
 
 _include_routers()

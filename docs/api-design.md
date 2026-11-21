@@ -210,7 +210,7 @@ Request `{"status": "disabled"}` 或 `{"status": "active"}`。停用時同時撤
 // 12. Request：首次連結不帶 platform_account_id；重新連結帶入
 {"platform": "instagram", "platform_account_id": 7}
 // Response 200
-{"authorization_url": "https://www.instagram.com/oauth/authorize?...&state=..."}
+{"authorization_url": "https://www.facebook.com/v27.0/dialog/oauth?...&config_id=...&state=..."}
 ```
 
 1. 前端將瀏覽器導向 `authorization_url`。
@@ -219,7 +219,7 @@ Request `{"status": "disabled"}` 或 `{"status": "active"}`。停用時同時撤
 
 | 錯誤（回傳於 `result`） | 情境 | 規則 |
 |---|---|---|
-| `PLATFORM_AUTH_FAILED` | 使用者拒絕授權或平台授權失敗 | BR-37 |
+| `PLATFORM_AUTH_FAILED` | 使用者拒絕授權或平台授權失敗；Instagram 授權時沒有分享、或分享了不只一個 Instagram 帳號 | BR-37 |
 | `VERIFICATION_UNAVAILABLE` | 暫時連不上平台，無法確認授權（原型新增） | 4.5.2、BR-37 |
 | `PLATFORM_ID_MISMATCH` | 重新連結時平台識別碼不同 | BR-38 |
 | `PLATFORM_ACCOUNT_NAME_TAKEN` | 同平台已有相同帳號名稱的未移除帳號（不記錄平台授權事件） | 4.2、BR-38 |

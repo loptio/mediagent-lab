@@ -11,7 +11,6 @@ container ID 就是 request_ref：逾時或中斷後，可以用它向 Threads �
 因此錯誤訊息一律先濾掉 Token 與 App 密鑰，httpx 的請求紀錄也已在 app/main.py 關閉。
 """
 
-import asyncio
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -35,15 +34,13 @@ from app.core.platforms import (
     VerificationUnavailable,
 )
 
+from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, scrub, send
+
 AUTHORIZE_URL = "https://threads.com/oauth/authorize"
 GRAPH_URL = "https://graph.threads.com"
 API_URL = f"{GRAPH_URL}/v1.0"
 # 只申請發文需要的最小權限（NFR-06）
 SCOPES = ("threads_basic", "threads_content_publish")
-
-MAX_RETRIES = 2
-MAX_ERROR_MESSAGE_LENGTH = 300
-GRAPH_INVALID_TOKEN_CODE = 190
 
 _CONTAINER_STATUS = {
     "FINISHED": CheckStatus.READY,
@@ -60,28 +57,6 @@ def _is_emoji(char: str) -> bool:
         or 0x2B00 <= code <= 0x2BFF
         or code in (0x200D, 0xFE0F)  # 組合 emoji 用的連接符號與變體選擇符號
     )
-
-
-def _scrub(text: str, *secrets: str | None) -> str:
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "[redacted]")
-    return text[:MAX_ERROR_MESSAGE_LENGTH]
-
-
-def _error_details(response: httpx.Response) -> tuple[str, Any]:
-    """取出平台回應中的錯誤訊息與代碼。Graph API 與 OAuth 端點的格式不同，兩種都處理。"""
-    try:
-        body = response.json()
-    except ValueError:
-        return response.text, None
-    if isinstance(body, dict):
-        error = body.get("error")
-        if isinstance(error, dict):
-            return str(error.get("message", "")), error.get("code")
-        if "error_message" in body:
-            return str(body["error_message"]), body.get("code")
-    return response.text, None
 
 
 class ThreadsAdapter:
@@ -136,9 +111,9 @@ class ThreadsAdapter:
         def parse(response: httpx.Response) -> dict[str, Any]:
             if response.status_code == 429 or response.status_code >= 500:
                 raise VerificationUnavailable()
-            message, _ = _error_details(response)
+            message = error_details(response).message
             if response.status_code != 200:
-                raise OAuthFailed(_scrub(f"HTTP {response.status_code}: {message}", *secrets))
+                raise OAuthFailed(scrub(f"HTTP {response.status_code}: {message}", *secrets))
             try:
                 body = response.json()
             except ValueError as exc:
@@ -196,27 +171,8 @@ class ThreadsAdapter:
 
     # ---------- 三步發佈（PlatformAdapter） ----------
 
-    async def _send(
-        self,
-        client: httpx.AsyncClient,
-        method: str,
-        url: str,
-        *,
-        retry_server_errors: bool,
-        **kwargs: Any,
-    ) -> httpx.Response:
-        """送出請求；429 一律可重試，5xx 只有不會發文的呼叫才重試。"""
-        for attempt in range(MAX_RETRIES + 1):
-            response = await client.request(method, url, **kwargs)
-            status = response.status_code
-            retryable = status == 429 or (retry_server_errors and status >= 500)
-            if not retryable or attempt == MAX_RETRIES:
-                break
-            await asyncio.sleep(self._retry_delay)
-        return response
-
     def _failure(self, response: httpx.Response, credential: Credential) -> Failed:
-        message, code = _error_details(response)
+        message, code, _, _ = error_details(response)
         status = response.status_code
         if status == 401 or code == GRAPH_INVALID_TOKEN_CODE or "access token" in message.lower():
             reason = FailureReason.AUTH_INVALID
@@ -226,7 +182,7 @@ class ThreadsAdapter:
             reason = FailureReason.CONTENT_REJECTED
         else:
             reason = FailureReason.OTHER
-        scrubbed = _scrub(
+        scrubbed = scrub(
             f"HTTP {status}: {message}".strip(": "),
             credential.get("access_token"),
             get_settings().threads_app_secret,
@@ -250,11 +206,12 @@ class ThreadsAdapter:
             }
         try:
             async with self._client() as client:
-                response = await self._send(
+                response = await send(
                     client,
                     "POST",
                     f"{API_URL}/{credential['user_id']}/threads",
                     retry_server_errors=True,
+                    retry_delay=self._retry_delay,
                     data=data,
                 )
         except httpx.HTTPError:
@@ -273,11 +230,12 @@ class ThreadsAdapter:
             return CheckResult(CheckStatus.UNKNOWN)
         try:
             async with self._client() as client:
-                response = await self._send(
+                response = await send(
                     client,
                     "GET",
                     f"{API_URL}/{request_ref}",
                     retry_server_errors=True,
+                    retry_delay=self._retry_delay,
                     params={
                         "fields": "status,error_message",
                         "access_token": credential["access_token"],
@@ -295,7 +253,7 @@ class ThreadsAdapter:
             # 已經發出，但從 container 查不到貼文連結：仍然算成功，連結留空
             return CheckResult(mapped, published=Published() if status == "PUBLISHED" else None)
         if status == "ERROR":
-            detail = _scrub(f"container error: {body.get('error_message', 'UNKNOWN')}")
+            detail = scrub(f"container error: {body.get('error_message', 'UNKNOWN')}")
             return CheckResult(
                 CheckStatus.FAILED, failed=Failed(FailureReason.CONTENT_REJECTED, detail)
             )
@@ -310,11 +268,12 @@ class ThreadsAdapter:
         token = credential["access_token"]
         try:
             async with self._client() as client:
-                response = await self._send(
+                response = await send(
                     client,
                     "POST",
                     f"{API_URL}/{credential['user_id']}/threads_publish",
                     retry_server_errors=False,
+                    retry_delay=self._retry_delay,
                     data={"creation_id": request_ref, "access_token": token},
                 )
                 if response.status_code != 200:

@@ -76,6 +76,44 @@ def test_image_within_instagram_ratio_is_not_cropped(client, db, media_dir):
     assert len(list(media_dir.rglob("*.jpg"))) == 1
 
 
+def mpo(width, height) -> bytes:
+    buffer = io.BytesIO()
+    first, second = Image.new("RGB", (width, height)), Image.new("RGB", (320, 240))
+    first.save(buffer, format="MPO", save_all=True, append_images=[second])
+    return buffer.getvalue()
+
+
+def rotated_jpeg(stored_width, stored_height) -> bytes:
+    """手機直拍：像素以橫向儲存，EXIF 記錄要順時針轉 90 度顯示。"""
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buffer = io.BytesIO()
+    Image.new("RGB", (stored_width, stored_height)).save(buffer, format="JPEG", exif=exif)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("data", "size"),
+    [(mpo(1080, 1080), (1080, 1080)), (rotated_jpeg(1200, 1000), (1000, 1200))],
+    ids=["multi-picture", "exif-rotated"],
+)
+def test_instagram_gets_a_plain_upright_jpeg_even_when_no_crop_is_needed(client, db, data, size):
+    """Instagram 不接受 MPO，也不保證依 EXIF 轉正：比例已符合時仍另存一份重新編碼的版本，但不算裁切。"""
+    seed_club(db)
+    headers = login(client, "pr@club.tw")
+    post_id = draft(client, headers)
+
+    image = upload(client, headers, post_id, data).json()
+
+    assert (image["width"], image["height"]) == size
+    assert (image["ig_width"], image["ig_height"], image["ig_cropped"]) == (*size, False)
+    assert image["ig_public_url"] != image["public_url"]
+    instagram = Image.open(io.BytesIO(served(client, image["ig_public_url"]).content))
+    assert (instagram.format, instagram.size) == ("JPEG", size)
+    assert instagram.getexif().get(0x0112) in (None, 1)
+    assert served(client, image["public_url"]).content == data  # 原圖照上傳的檔案保存
+
+
 @pytest.mark.parametrize(
     ("data", "status", "code"),
     [

@@ -313,7 +313,8 @@ class PostImage(Base):
 
     @property
     def cropped(self) -> bool:
-        return self.ig_media_id != self.original_media_id
+        """Instagram 版本的寬高與原圖不同才算裁切；只是重新編碼（例如 MPO 轉成一般 JPEG）不算。"""
+        return (self.instagram.width, self.instagram.height) != (self.original.width, self.original.height)
 
 
 # ---------- 5.9～5.11 目標與發佈紀錄（M4、M5） ----------

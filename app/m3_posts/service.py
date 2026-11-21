@@ -265,7 +265,8 @@ def attach_image(db: Session, user: UserAccount, post_id: int, data: bytes) -> I
     try:
         original = _store(data, width, height)
         stored.append(original)
-        if (ig_width, ig_height) != (width, height):
+        if (ig_width, ig_height) != (width, height) or not images.instagram_ready(data):
+            # 需要裁切，或原圖是 Instagram 不收的格式（MPO、要依 EXIF 轉正）：另存重新編碼的版本
             instagram = _store(images.crop_center(data, ig_width, ig_height), ig_width, ig_height)
             stored.append(instagram)
         else:
