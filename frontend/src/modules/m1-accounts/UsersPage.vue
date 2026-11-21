@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { usersApi, type UserCreate, type UserDetail } from '@/shared/api/endpoints'
 import { useAuthStore } from '@/shared/auth'
@@ -11,6 +12,7 @@ import { formatTaipei } from '@/shared/time'
 
 const auth = useAuthStore()
 const queryClient = useQueryClient()
+const router = useRouter()
 
 const { data, isPending, isError, error, refetch } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
 
@@ -81,8 +83,13 @@ function enable(user: UserDetail) {
 // ---------- 調整角色（FR-04）：立即生效；系統至少要留一位啟用中的管理員（BR-19） ----------
 const roleMutation = useMutation({
   mutationFn: (args: { user: UserDetail; role: Role }) => usersApi.setRole(args.user.id, args.role),
-  onSuccess: (user) => {
+  onSuccess: async (user) => {
     ElMessage.success(`已把「${user.name}」調整為${label(ROLE_LABELS, user.role)}`)
+    // 調整的是自己（換屆）：角色立即生效，畫面跟著更新；不再是管理員就離開這一頁
+    if (user.id === auth.user?.id) {
+      auth.user = { ...auth.user, role: user.role }
+      if (user.role !== 'admin') await router.push({ name: 'posts' })
+    }
   },
   // 失敗時也重新讀取，讓下拉選單回到實際的角色
   onSettled: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),

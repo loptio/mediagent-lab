@@ -93,3 +93,23 @@ def test_publish_rules_reject_invalid_authorization(db):
     with pytest.raises(DomainError) as error:
         check_publish_rules(post, [account], clock.now())
     assert (error.value.status_code, error.value.code) == (422, "TARGET_AUTH_INVALID")
+
+
+def test_mock_fail_once_prefix_fails_first_attempt_then_succeeds():
+    # E2E 例外情境用：這個字首的帳號第一次回報平台暫時無法連線，重試才成功；其他帳號不受影響
+    mock = MockAdapter(Platform.INSTAGRAM)
+    failing = {"account_name": f"{platforms.MOCK_FAIL_ONCE_PREFIX}ig"}
+    normal = {"account_name": "guitar_club"}
+
+    async def attempts():
+        first = await mock.begin(failing, PostContent(text="社課公告"))
+        second = await mock.begin(failing, PostContent(text="社課公告"))
+        other = await mock.begin(normal, PostContent(text="社課公告"))
+        return first, second, other
+
+    first, second, other = asyncio.run(attempts())
+
+    assert isinstance(first, Failed)
+    assert first.reason == FailureReason.PLATFORM_UNAVAILABLE
+    assert isinstance(second, Started)
+    assert isinstance(other, Started)
