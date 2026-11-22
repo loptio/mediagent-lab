@@ -427,7 +427,7 @@ D-02 有兩處**說明文字**提到「30 秒」，不是步驟，但 Rule 標�
 |---|---|---|
 | 1 | Threads 的純文字與圖片貼文，container 要等多久才可以發佈 | D-02 的總時限 |
 | 2 | 對同一個 container 發佈兩次，平台怎麼回應；狀態是否會變成 `PUBLISHED` | D-03 防重複的依據 |
-| 3 | Threads 與 Instagram 能不能讀到 Neon Object Storage 公開網址上的圖片 | M3 的儲存實作 |
+| 3 | Threads 與 Instagram 能不能讀到 Neon Object Storage 公開網址上的圖片（已實測 2026-11-22：正式環境帶圖發到 Threads、Instagram 都成功） | M3 的儲存實作 |
 | 4 | Instagram 的登入流程、專業帳號的要求、token 期限（已查證：改用 Facebook 企業版登入，Token 預設不過期） | D-05 |
 | 5 | Discord Webhook 加 `?wait=true` 的回應內容、附件上傳 | D-12 |
 | 6 | 各平台字數怎麼算。Threads 官方文件說 emoji 以 UTF-8 位元組計算 | 補上驗收例子的 `#TODO` |
