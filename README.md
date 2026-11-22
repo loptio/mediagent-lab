@@ -81,7 +81,7 @@ Render（`render.yaml`）＋ Neon 的免費方案，步驟見 [docs/deploy.md](d
 |---|---|---|
 | 貼文列表 `/posts` | 全部 | 狀態篩選，每頁 20／50／100 筆 |
 | 貼文編輯 `/posts/:id` | 全部 | 內容與各平台字數上限、圖片（原圖與 Instagram 裁切版本）、目標平台帳號、預覽各平台、排程（台灣時間、5 分鐘整）、立即發佈與重試、發佈結果（發佈中每 3 秒更新）與變更歷程、複製為新草稿 |
-| 平台帳號 `/platform-accounts` | 全部；操作限管理員 | 連結 Discord Webhook、更換 Webhook、連結或重新連結 Threads、移除 |
+| 平台帳號 `/platform-accounts` | 全部；操作限管理員 | 連結 Discord Webhook、更換 Webhook、連結或重新連結 Threads 與 Instagram、移除 |
 | 幹部帳號 `/users` | 管理員 | 建立、調整角色、停用、啟用、解除鎖定 |
 | 稽核紀錄 `/audit` | 管理員 | 一般操作、登入失敗、平台帳號連結失敗；依操作者、對應帳號、操作類型、日期篩選，每頁 20／50／100 筆 |
 
@@ -124,7 +124,7 @@ pnpm gen:api
 
 `e2e/` 用 Playwright 跑 [docs/requirements.md](docs/requirements.md) 第 3 節的三個使用情境：
 
-- 情境一：管理員連結 Discord 與 Threads，建立幹部帳號，換屆調整角色
+- 情境一：管理員連結 Discord、Threads 與 Instagram，建立幹部帳號，換屆調整角色
 - 情境二：發佈者寫貼文、附 9:16 海報，選 Threads、Instagram、Discord，在預覽確認裁切，設定排程，時間到後看到三個貼文連結
 - 例外情境：Instagram 暫時無法連線 → 部分失敗 → 重試只重送 Instagram；失敗的帳號已移除 → 複製為新草稿再發佈
 

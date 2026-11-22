@@ -1,6 +1,6 @@
 /**
  * 情境一：管理員授權幹部（docs/requirements.md §3）
- * 管理員連結 Discord 與 Threads，建立幹部帳號，幹部可以登入；換屆時把新任幹部調整為管理員，再把自己調整為其他角色。
+ * 管理員連結 Discord、Threads 與 Instagram，建立幹部帳號，幹部可以登入；換屆時把新任幹部調整為管理員，再把自己調整為其他角色。
  */
 import { expect, test } from '@playwright/test'
 
@@ -14,13 +14,14 @@ test('管理員連結平台帳號、建立幹部帳號，換屆調整角色', as
   const successor = { name: `新任社長-${RUN_ID}`, email: `successor-${RUN_ID}@club.test` }
   const outgoing = { name: `卸任社長-${RUN_ID}`, email: `outgoing-${RUN_ID}@club.test` }
 
-  // 重跑時先移除上一次 mock 授權留下的 Threads 帳號（mock 平台固定回傳同一個帳號名稱）
+  // 重跑時先移除上一次 mock 授權留下的 Threads、Instagram 帳號（mock 平台固定回傳同一個帳號名稱）
   const adminToken = await apiToken(USERS.admin)
   const headers = { Authorization: `Bearer ${adminToken}` }
   const existing = (await (await fetch(`${BASE_URL}/api/v1/platform-accounts`, { headers })).json()) as {
     items: { id: number; account_name: string }[]
   }
-  for (const account of existing.items.filter((a) => a.account_name === 'mock_threads')) {
+  const mockNames = ['mock_threads', 'mock_instagram']
+  for (const account of existing.items.filter((a) => mockNames.includes(a.account_name))) {
     await fetch(`${BASE_URL}/api/v1/platform-accounts/${account.id}`, { method: 'DELETE', headers })
   }
 
@@ -50,6 +51,22 @@ test('管理員連結平台帳號、建立幹部帳號，換屆調整角色', as
     await expect(toast(page, '已連結平台帳號')).toBeVisible()
     const row = page.getByRole('row').filter({ hasText: 'mock_threads' })
     await expect(row).toContainText('Threads')
+    await expect(row).toContainText('有效')
+  })
+
+  await test.step('連結 Instagram：同樣走平台授權流程（正式環境是 Facebook 企業版登入）', async () => {
+    await page.route('https://instagram.test/**', async (route) => {
+      const url = new URL(route.request().url())
+      const state = encodeURIComponent(url.searchParams.get('state') ?? '')
+      await route.fulfill({
+        status: 302,
+        headers: { location: `${url.searchParams.get('redirect_uri')}?code=e2e-code&state=${state}` },
+      })
+    })
+    await page.getByRole('button', { name: '連結 Instagram 帳號' }).click()
+    await expect(toast(page, '已連結平台帳號')).toBeVisible()
+    const row = page.getByRole('row').filter({ hasText: 'mock_instagram' })
+    await expect(row).toContainText('Instagram')
     await expect(row).toContainText('有效')
   })
 

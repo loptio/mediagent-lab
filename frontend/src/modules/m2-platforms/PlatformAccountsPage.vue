@@ -38,6 +38,10 @@ onMounted(() => {
 
 // 用平台授權（OAuth）連結的平台；Discord 用 Webhook
 const OAUTH_PLATFORMS = new Set(['threads', 'instagram'])
+const OAUTH_LINKS = [
+  { platform: 'threads', label: '連結 Threads 帳號' },
+  { platform: 'instagram', label: '連結 Instagram 帳號' },
+] as const
 
 // ---------- Threads、Instagram：取得授權網址後整頁導向平台（重新連結時帶 platform_account_id） ----------
 const oauthMutation = useMutation({
@@ -139,23 +143,27 @@ async function remove(account: PlatformAccount) {
       <div v-if="isAdmin" class="toolbar">
         <el-button @click="openDiscord()">連結 Discord 頻道</el-button>
         <el-button
+          v-for="option in OAUTH_LINKS"
+          :key="option.platform"
           type="primary"
-          :loading="oauthMutation.isPending.value"
-          @click="oauthMutation.mutate({ platform: 'threads' })"
+          :loading="oauthMutation.isPending.value && oauthMutation.variables.value?.platform === option.platform"
+          :disabled="oauthMutation.isPending.value"
+          @click="oauthMutation.mutate({ platform: option.platform })"
         >
-          連結 Threads 帳號
+          {{ option.label }}
         </el-button>
       </div>
     </div>
     <p v-if="isAdmin" class="muted intro">
-      連結 Threads 會前往 Threads 授權頁，完成後自動回到這裡並顯示結果。
+      連結 Threads 或 Instagram 會前往平台的授權頁，完成後自動回到這裡並顯示結果。Instagram
+      授權時請只勾選一個專業帳號。
     </p>
 
     <el-skeleton v-if="isPending" :rows="4" animated />
     <QueryError v-else-if="isError" :error="error" @retry="refetch()" />
     <el-empty
       v-else-if="data && data.items.length === 0"
-      :description="isAdmin ? '尚未連結平台帳號，請先連結 Discord 頻道或 Threads 帳號' : '尚未連結平台帳號，請管理員連結'"
+      :description="isAdmin ? '尚未連結平台帳號，請先連結 Discord 頻道、Threads 或 Instagram 帳號' : '尚未連結平台帳號，請管理員連結'"
     />
     <el-table v-else-if="data" :data="data.items" row-key="id">
       <el-table-column label="平台" width="120">
