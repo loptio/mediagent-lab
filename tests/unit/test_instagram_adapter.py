@@ -464,3 +464,15 @@ def test_permission_and_rate_limit_errors_are_classified(response, reason):
     result, _ = run(lambda r, n: response, lambda a: a.begin(CREDENTIAL, CONTENT))
 
     assert result.reason == reason
+
+
+def test_api_access_blocked_does_not_mark_the_account_invalid():
+    """code 200 一般是權限不足（要重新授權），但「API access blocked」是 Meta 封鎖整個 App：
+    帳號授權本身沒問題，不標示失效，歸為其他並提示到 Meta 後台處理。"""
+    response = graph_error(400, "API access blocked.", code=200)
+
+    result, _ = run(lambda r, n: response, lambda a: a.begin(CREDENTIAL, CONTENT))
+
+    assert result.reason == FailureReason.OTHER
+    assert "API access blocked" in result.message
+    assert "Meta" in result.message and "後台" in result.message

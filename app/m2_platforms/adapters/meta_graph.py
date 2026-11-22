@@ -30,6 +30,15 @@ def scrub(text: str, *secrets: str | None) -> str:
     return text[:MAX_ERROR_MESSAGE_LENGTH]
 
 
+APP_BLOCKED_HINT = "Meta 封鎖了這個 App 的 API 存取，請到 Meta 開發者後台查看提醒並完成要求的驗證"
+
+
+def app_blocked(message: str) -> bool:
+    """Meta 封鎖整個 App（或開發者帳號）的 API 時回「API access blocked.」（實測 2026-11-23，code 200）。
+    這不是內容問題，也不是單一帳號的授權失效，重新連結解決不了，要到 Meta 開發者後台處理。"""
+    return "api access blocked" in message.lower()
+
+
 def expires_at(expires_in: Any) -> datetime | None:
     """平台回傳的有效秒數 → 授權到期時間。授權已經成功，看不懂的值一律視為未知（需求 4.2），不讓導回失敗。"""
     if isinstance(expires_in, bool):

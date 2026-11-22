@@ -32,7 +32,15 @@ from app.core.platforms import (
     VerificationUnavailable,
 )
 
-from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, expires_at, scrub, send
+from .meta_graph import (
+    APP_BLOCKED_HINT,
+    GRAPH_INVALID_TOKEN_CODE,
+    app_blocked,
+    error_details,
+    expires_at,
+    scrub,
+    send,
+)
 
 AUTHORIZE_URL = "https://threads.com/oauth/authorize"
 GRAPH_URL = "https://graph.threads.com"
@@ -171,7 +179,10 @@ class ThreadsAdapter:
     def _failure(self, response: httpx.Response, credential: Credential) -> Failed:
         message, code, _, _ = error_details(response)
         status = response.status_code
-        if status == 401 or code == GRAPH_INVALID_TOKEN_CODE or "access token" in message.lower():
+        if app_blocked(message):
+            reason = FailureReason.OTHER
+            message = f"{message}（{APP_BLOCKED_HINT}）"
+        elif status == 401 or code == GRAPH_INVALID_TOKEN_CODE or "access token" in message.lower():
             reason = FailureReason.AUTH_INVALID
         elif status == 429 or status >= 500:
             reason = FailureReason.PLATFORM_UNAVAILABLE
