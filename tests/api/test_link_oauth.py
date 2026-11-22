@@ -279,3 +279,48 @@ def test_docs_prefill_a_request_body_that_works(client):
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
 
     assert schemas["OAuthStart"]["examples"] == [{"platform": "threads"}]
+
+
+def test_repeated_callback_returns_the_first_result_without_exchanging_again(client, db, mock_platforms):
+    """瀏覽器重送或連按「允許」時，同一個 state 會導回好幾次；授權碼只能用一次，
+    重複的請求不再向平台換權杖，直接回傳第一次的結果（實測：Threads 回 Invalid parameter）。"""
+    state = issue_state_via_api(client, db)
+    mock = mock_platforms[Platform.THREADS]
+
+    first = result_of(callback(client, code="the-code", state=state))
+    mock.oauth_fail("Invalid parameter")  # 第二次換權杖的話，平台會拒絕
+    again = [result_of(callback(client, code="the-code", state=state)) for _ in range(2)]
+
+    assert (first, again) == ("linked", ["linked", "linked"])
+    assert len(mock.exchanged) == 1
+    assert [event[0] for event in auth_events(db)] == []  # 沒有多出「連結失敗」事件
+    linked = db.scalars(
+        select(models.PlatformAccount).where(models.PlatformAccount.account_name == "mock_threads")
+    ).all()
+    assert len(linked) == 1
+
+
+def test_concurrent_duplicate_callbacks_wait_for_the_first_one(db):
+    """兩個重複請求幾乎同時到達（實測間隔約 0.1 秒）：後到的等先到的做完，拿到同一個結果。"""
+    import threading
+
+    from app.m2_platforms.service import _callbacks
+
+    started, release = threading.Event(), threading.Event()
+    results = []
+
+    def slow_first():
+        started.set()
+        release.wait(5)
+        return "linked"
+
+    first = threading.Thread(target=lambda: results.append(_callbacks.run("state-a", slow_first)))
+    first.start()
+    started.wait(5)
+    second = threading.Thread(target=lambda: results.append(_callbacks.run("state-a", lambda: "failed")))
+    second.start()
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    assert results == ["linked", "linked"]

@@ -4,7 +4,12 @@ Threads、Instagram，以及移除平台帳號。
 哪些平台可以用平台授權連結，取決於註冊的 Adapter 有沒有提供授權流程（真實的 Instagram Adapter 尚未實作）。
 """
 
+import hashlib
 import logging
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from anyio import from_thread
 from sqlalchemy.orm import Session
@@ -243,6 +248,51 @@ def start_oauth(
         ) from None
 
 
+@dataclass
+class _Callback:
+    done: threading.Event = field(default_factory=threading.Event)
+    result: str | None = None
+    expires: float = 0.0
+
+
+class _CallbackResults:
+    """同一個 state 的導回只處理一次，重複的請求回傳第一次的結果。
+
+    瀏覽器重送或使用者連按「允許」時，平台會帶著同一組授權碼導回好幾次；授權碼只能用一次，
+    第二次換權杖一定失敗，瀏覽器最後顯示的卻是最後一個請求的結果（實測：Threads 已連結，畫面顯示授權失敗）。
+    只記在服務程序內：正式環境是單一程序（與登入的 IP 限流相同），state 本身 10 分鐘後就失效。
+    """
+
+    def __init__(self, wait_seconds: float = 60.0) -> None:
+        self._lock = threading.Lock()
+        self._entries: dict[str, _Callback] = {}
+        self._wait_seconds = wait_seconds
+
+    def run(self, state: str, handle: Callable[[], str]) -> str:
+        key = hashlib.sha256(state.encode()).hexdigest()
+        now = time.monotonic()
+        with self._lock:
+            for stale in [k for k, entry in self._entries.items() if entry.expires <= now]:
+                del self._entries[stale]
+            entry = self._entries.get(key)
+            first = entry is None
+            if first:
+                ttl = get_settings().oauth_state_minutes * 60
+                entry = self._entries[key] = _Callback(expires=now + ttl)
+        if not first:
+            # 先到的請求可能還在向平台換權杖：等它做完，拿同一個結果
+            entry.done.wait(self._wait_seconds)
+            return entry.result or RESULT_AUTH_FAILED
+        try:
+            entry.result = handle()
+            return entry.result
+        finally:
+            entry.done.set()
+
+
+_callbacks = _CallbackResults()
+
+
 def complete_oauth(db: Session, *, code: str | None, state: str | None, error: str | None) -> str:
     """平台把瀏覽器導回來之後完成連結，回傳結果代碼。
 
@@ -253,7 +303,12 @@ def complete_oauth(db: Session, *, code: str | None, state: str | None, error: s
         issued = oauth_state.read_state(state or "")
     except OAuthFailed:
         return RESULT_AUTH_FAILED  # 無法確認是誰發起的，不記錄事件，也不呼叫平台
+    return _callbacks.run(state or "", lambda: _complete_oauth(db, issued, code=code, error=error))
 
+
+def _complete_oauth(
+    db: Session, issued: oauth_state.OAuthState, *, code: str | None, error: str | None
+) -> str:
     # 失敗原因要留在 Log 供排查（第一次串接最常見的就是設定錯誤）；授權碼與 state 不可寫入
     account: OAuthAccount | None = None
     failure = PlatformAuthFailureReason.PLATFORM_AUTH_FAILED
