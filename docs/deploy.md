@@ -130,6 +130,10 @@ Render 免費方案閒置 15 分鐘會休眠，休眠時服務內的排程檢查
   - Render 的 `OAUTH_REDIRECT_BASE_URL`、`FRONTEND_ORIGIN`
   - GitHub Secret `APP_URL`
   - cron-job.org 兩個工作的網址
+- **Threads、Instagram 發文回「API access blocked」**：Meta 暫時封鎖了這個 App 的 API，不是貼文內容或帳號授權的問題，重新連結也沒用；發佈結果的失敗原因是「其他」，平台訊息後面附有提示。處理方式：
+  1. 看 Meta 開發者後台的提醒，以及 Facebook 的帳號狀態、帳號管理中心的手機與 Email 驗證，有要求就照著完成。
+  2. 都正常的話就等。2026-11-23 遇過一次：後台沒有提醒，幾個小時後自己恢復。
+  3. 恢復後到貼文按「重試失敗的平台」。
 - **更換平台憑證的加密金鑰**：新金鑰放最前面，舊金鑰用逗號接在後面，舊資料才解得開。
 
 ## 容量與費用
