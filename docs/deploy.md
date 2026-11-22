@@ -88,9 +88,14 @@ Threads 與 Instagram 在同一個 Meta App。兩邊的回呼網址都是：
 4. **1. 設定你的應用程式** → **建立新的設定** → **透過範本建立**。範本的權限刪不掉，沒關係；系統只用到發文需要的兩個。
 5. **註冊新的導回網址**：填上面的回呼網址並儲存。**Meta 不接受 `https://localhost`**，所以 Instagram 的授權只能在正式環境做。授權時如果出現導回網址不符的錯誤，到 **Facebook Login for Business** → **Settings** 的 **Valid OAuth Redirect URIs** 也加上同一個網址。
 6. **2. 產生存取權杖** → **新增帳號**：加入要連結的 Instagram 專業帳號（開發模式下只有加入的帳號能授權）。
-7. 左下齒輪 **應用程式設定** → **基本資料** → **應用程式密鑰**：這就是 `INSTAGRAM_APP_SECRET`，填到 Render。登入設定 ID 與 App ID 已寫在 `render.yaml`。
+7. **把 Instagram 帳號加進企業資產管理組合**（只加成測試帳號還不夠，授權視窗會選不到它）：打開 [Meta 企業設定](https://business.facebook.com/settings)，確認左上角是綁定的那個組合 → **帳戶** → **Instagram 帳戶** → **新增**，用該 Instagram 帳號登入並允許。完成視窗裡「將此主頁加到人員名單」的開關保持關閉。
+8. 左下齒輪 **應用程式設定** → **基本資料** → **應用程式密鑰**：這就是 `INSTAGRAM_APP_SECRET`，填到 Render。登入設定 ID 與 App ID 已寫在 `render.yaml`。
 
-連結 Instagram：以管理員登入 `<服務網址>`，在「平台帳號」選連結 Instagram。Meta 的視窗裡選社團的企業管理平台，資產只勾**一個** Instagram 專業帳號（勾兩個以上會連結失敗），同意權限後會導回系統並顯示連結成功。Instagram 的 Token 預設不會過期，平台帳號列表的授權到期時間是空的。
+連結 Instagram：以管理員登入 `<服務網址>`，在「平台帳號」按「連結 Instagram 帳號」。Meta 的視窗裡：
+
+- 企業資產管理組合選綁定的那一個，Instagram 帳戶只選**一個**專業帳號（分享兩個以上會連結失敗）。
+- 範本登入設定把廣告帳戶也列為要分享的資產，選單裡只有「新建廣告帳戶」，略過不了：依畫面建立一個（網站填 `<服務網址>`、貨幣新台幣、時區 Asia/Taipei）。廣告帳戶免費，不投放廣告就不會收費；建立時會同意 Meta 的廣告條款，由操作的人決定。
+- 最後的按鈕只按一次，等它導回系統顯示連結成功。Instagram 的權杖預設不會過期，平台帳號列表的授權到期時間顯示「不會過期」。
 
 ## 7. 定時觸發：讓排程準時、服務不休眠
 
@@ -108,6 +113,8 @@ Render 免費方案閒置 15 分鐘會休眠，休眠時服務內的排程檢查
 另外在 GitHub repo 的 **Settings → Secrets and variables → Actions** 加上 `APP_URL`（`<服務網址>`）與 `CRON_SECRET`，`.github/workflows/scheduled-publish.yml` 每小時會再補觸發一次，外部服務出問題時也不會漏發。
 
 ## 8. 部署後檢查
+
+2026-11-22 已在正式環境完成下列檢查：三個平台都連結成功，帶圖貼文同時發到 Discord、Threads、Instagram 都成功，排程貼文準時發出。之後重新部署或改設定時照同樣步驟再檢查一次。
 
 - 用管理員登入，連結 Discord 頻道、Threads 與 Instagram 帳號，各發一則有圖片的貼文。
 - Threads、Instagram 帶圖發文時，平台會從 Neon Object Storage 的公開網址下載圖片（foundation-plan §10 第 3 項，部署後第一次實測）；失敗時在發佈結果（管理員可看到平台錯誤訊息）確認原因。Instagram 的錯誤子代碼 `2207052` 代表圖片網址下載不到。
