@@ -323,3 +323,15 @@ def test_odd_expiry_values_count_as_unknown(expires_in):
     account, _ = run(handler, lambda a: a.exchange_code("the-code", REDIRECT))
 
     assert account.expires_at is None
+
+
+def test_api_access_blocked_is_not_reported_as_rejected_content():
+    """實測（2026-11-23）：Meta 封鎖整個 App 的 API 時回 400、code 200「API access blocked.」。
+    這不是貼文內容的問題，也不是這個帳號的授權失效，重新連結也沒用：歸為其他，並提示到 Meta 後台處理。"""
+    response = graph_error(400, "API access blocked.", code=200)
+
+    result, _ = run(lambda r, n: response, lambda a: a.begin(CREDENTIAL, PostContent("hi")))
+
+    assert result.reason == FailureReason.OTHER
+    assert "API access blocked" in result.message
+    assert "Meta" in result.message and "後台" in result.message

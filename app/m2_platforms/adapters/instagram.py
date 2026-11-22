@@ -32,7 +32,15 @@ from app.core.platforms import (
     VerificationUnavailable,
 )
 
-from .meta_graph import GRAPH_INVALID_TOKEN_CODE, error_details, expires_at, scrub, send
+from .meta_graph import (
+    APP_BLOCKED_HINT,
+    GRAPH_INVALID_TOKEN_CODE,
+    app_blocked,
+    error_details,
+    expires_at,
+    scrub,
+    send,
+)
 
 API_VERSION = "v27.0"
 DIALOG_URL = f"https://www.facebook.com/{API_VERSION}/dialog/oauth"
@@ -204,7 +212,10 @@ class InstagramAdapter:
         message, code, subcode, transient = error_details(response)
         status = response.status_code
         rate_limited = code in _UNAVAILABLE_CODES and subcode != _SPAM_SUBCODE
-        if status == 401 or _auth_invalid(code):
+        if app_blocked(message):
+            reason = FailureReason.OTHER
+            message = f"{message}（{APP_BLOCKED_HINT}）"
+        elif status == 401 or _auth_invalid(code):
             reason = FailureReason.AUTH_INVALID
         elif status == 429 or status >= 500 or transient or rate_limited:
             reason = FailureReason.PLATFORM_UNAVAILABLE
